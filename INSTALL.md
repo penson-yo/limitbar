@@ -23,15 +23,17 @@ Follow these steps exactly. Do not improvise other install methods.
    ~/Applications/LimitBar.app/Contents/MacOS/LimitBar --probe
    ```
    Services are `claude` (Claude Code), `codex` (Codex CLI), `gemini` (the Google Antigravity CLI,
-   `agy`) and `grok` (Grok Build). For each, report the `state`:
+   `agy`), Cursor (the usage-meter snapshot) and `muse` (Muse Code). For each, report the `state`:
    - `ok` — working. `bar.used` is the percentage **used** (not left) of the window in the menu bar,
      rounded; `notes` may add details worth passing on.
    - `missing` — that CLI is not installed. Only mention it if the user uses that service.
    - `signedOut` — tell the user to sign in **themselves**: `claude` then `/login`, `codex login`,
-     run `agy` once, or `grok login`.
+     run `agy` once, or `muse login`.
    - `untrusted` — the CLI (or its interpreter) is writable by another account, so LimitBar will not
      run it; tell the user, do not change permissions yourself.
    - `failed` — report the `error` text.
+   - `setup` / `permissionNeeded` — Muse awaits an intentional Connect Muse action in the installed app.
+     The default probe never reads Muse credentials or calls its native API; it cannot verify connection.
 6. **Never** ask the user for, read, copy or print any token, API key, cookie or credential file. Signing
    in is always done by the user inside the official CLI.
 7. Tell the user: LimitBar is in the menu bar; hover it for details; the panel has "Launch at Login".

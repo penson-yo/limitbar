@@ -7,9 +7,9 @@ matters more than its size suggests. Reports are welcome.
 (private vulnerability reporting). Please do not open a public issue for a vulnerability.
 
 In scope, for example:
-- any way LimitBar could read, store or send a credential, or expose one to a CLI's environment;
+- credential access outside the documented native Muse boundary, any credential persistence/leak, or exposing one to a CLI's environment;
 - running an executable it should have refused (see `CLI.trusted` in `Sources/LimitBar/Spawn.swift`);
-- escaping or weakening the CLI sandbox (`Resources/cli.sb`) that codex, agy and grok run in;
+- escaping or weakening the CLI sandbox (`Resources/cli.sb`) that codex, agy and muse run in; the local adapters in LOCAL-ADAPTERS.md;
 - a `claude` invocation that loads user hooks, MCP servers or settings despite the isolation flags;
 - the installer accepting a modified archive, or `--from-source` building a different commit.
 

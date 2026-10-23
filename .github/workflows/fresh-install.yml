@@ -1,7 +1,8 @@
 name: fresh-install
 # Installs LimitBar on a brand-new GitHub-hosted Mac exactly as the README says, then installs real CLIs
 # without signing in. Proves: the published command works on a machine that has never seen this repo,
-# every CLI starts as "missing", and freshly installed, signed-out CLIs read "signedOut".
+# the official pinned four-provider release starts as "missing", and freshly installed, signed-out
+# CLIs read "signedOut". Custom five-provider artifact checks live in ci.yml, built from this checkout.
 on:
   workflow_dispatch:
     inputs:
@@ -38,10 +39,10 @@ jobs:
           test -s "$A/Contents/Resources/AppIcon.icns"
           codesign --verify --strict "$A"
           test "$(ls /Applications | grep -c '^LimitBar')" = 1
-      - name: nothing installed yet → all four "missing"
+      - name: official release — all four "missing"
         run: |
           ~/Applications/LimitBar.app/Contents/MacOS/LimitBar --probe | tee p1.json
-          /usr/bin/python3 -c 'import json; d=json.load(open("p1.json")); s={k:v["state"] for k,v in d.items()}; print(s); assert set(s.values())=={"missing"}, s'
+          /usr/bin/python3 -c 'import json; d=json.load(open("p1.json")); s={k:v["state"] for k,v in d.items()}; print(s); assert set(s)=={"claude","codex","gemini","grok"} and set(s.values())=={"missing"}, s'
       - name: reinstall with the GitHub CLI signed in → build provenance must be verified too
         env:
           GH_TOKEN: ${{ github.token }}
@@ -61,7 +62,7 @@ jobs:
       - name: freshly installed CLIs → "signedOut", the rest "missing"
         run: |
           ~/Applications/LimitBar.app/Contents/MacOS/LimitBar --probe | tee p2.json
-          /usr/bin/python3 -c 'import json; d=json.load(open("p2.json")); s={k:v["state"] for k,v in d.items()}; print(s); assert s["claude"]=="signedOut" and s["codex"]=="signedOut", s; assert s["gemini"]=="missing" and s["grok"]=="missing", s'
+          /usr/bin/python3 -c 'import json; d=json.load(open("p2.json")); s={k:v["state"] for k,v in d.items()}; print(s); assert set(s)=={"claude","codex","gemini","grok"}, s; assert s["claude"]=="signedOut" and s["codex"]=="signedOut", s; assert s["gemini"]=="missing" and s["grok"]=="missing", s'
       - name: uninstall leaves nothing behind
         run: |
           bash "$D/install.sh" --uninstall

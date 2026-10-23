@@ -1,16 +1,18 @@
 # LimitBar
 
 **How much of your AI coding limits you've used — in the macOS menu bar.** One glance for Claude Code,
-Codex, Gemini (Google Antigravity) and Grok Build; hover for the 5-hour and weekly windows and when
+Codex, Gemini (Google Antigravity) and Cursor; hover for the 5-hour and weekly windows and when
 they reset.
+
+> **Local build.** This branch drops Grok Build and adds Cursor (read from a local
+> [usage-meter](LOCAL-ADAPTERS.md#cursor) snapshot). Muse is parked: this build has four static active providers, no Muse UI, Connect action or automatic reads, regardless of old preferences/cache. The retained Muse adapter is for isolated fixtures only. Cursor goes beyond upstream's "only the official CLI" rule:
+> read [LOCAL-ADAPTERS.md](LOCAL-ADAPTERS.md) before turning anything on.
 
 ![LimitBar in the menu bar with its hover panel open](docs/screenshot.png)
 
 - **Native and light.** A Swift menu bar app, no Electron, no background browser. It asks each CLI only
   when that CLI has been used, so an idle Mac spends ~nothing.
-- **Never touches your credentials.** LimitBar asks the official CLIs you already use. It never reads,
-  stores or sends a token, cookie or password — sign-in stays inside each CLI.
-- **Only what you have.** CLIs you don't have installed stay out of the menu bar.
+- **Only what you have.** Missing active sources stay out of the menu bar.
 
 ## Install
 
@@ -45,7 +47,7 @@ Requirements: macOS 14 or later, Apple silicon or Intel, and at least one of the
 ## Sign in to the CLIs you use
 
 LimitBar shows whatever is installed in the standard places (`~/.local/bin`, `/opt/homebrew/bin`,
-`/usr/local/bin`, `~/.grok/bin`, `~/.npm-global/bin`, `~/.bun/bin`, `~/.volta/bin`). Sign in with
+`/usr/local/bin`, `~/.npm-global/bin`, `~/.bun/bin`, `~/.volta/bin`). Sign in with
 the CLI itself — once:
 
 | Service | CLI | Sign in | What the menu bar shows |
@@ -53,11 +55,11 @@ the CLI itself — once:
 | Claude (Pro / Max) | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) `claude` | run `claude`, then `/login` | 5-hour window |
 | Codex (ChatGPT plans) | [Codex CLI](https://github.com/openai/codex) `codex` | `codex login` | 5-hour window |
 | Gemini | [Google Antigravity CLI](https://antigravity.google) `agy` | run `agy` once | the most-used Gemini quota (often weekly) |
-| Grok | [Grok Build](https://x.ai) `grok` | `grok login` | weekly credits |
+| Cursor | none — the local usage-meter snapshot (`usage.json`) | usage-meter's `bin/setup-cursor-session` | the plan's included pool; "!" when Other models is ≥ 90 % |
 
 Installed somewhere else? Point LimitBar at it:
 `defaults write io.github.dancik.limitbar codexPath /full/path/to/codex` (same for `claudePath`,
-`agyPath`, `grokPath`), then quit and reopen LimitBar.
+`agyPath`; `cursorUsagePath` for the Cursor snapshot file), then quit and reopen LimitBar.
 
 ## Reading the menu bar
 
@@ -89,7 +91,7 @@ times to `~/Library/Caches/limitbar/claude-status.json`. LimitBar never edits yo
 
 ## Security and privacy
 
-LimitBar runs these commands, and nothing else:
+LimitBar uses these sources:
 
 | Service | Command | Notes |
 |---|---|---|
@@ -97,20 +99,21 @@ LimitBar runs these commands, and nothing else:
 | Claude | `claude -p /usage --output-format json --max-turns 1 --restricted --strict-mcp-config --no-session-persistence --settings '{"disableAllHooks":true}'` | no model call; your hooks, MCP servers and settings files are not loaded; no transcript saved |
 | Codex | reads `rate_limits` lines from `~/.codex/sessions/<today>/*.jsonl`; `codex app-server` → `account/rateLimits/read`; `codex login status` | in the sandbox below |
 | Gemini | `agy -p /quota --output-format json` | no model call; in the sandbox below |
-| Grok | `grok agent stdio` → `_x.ai/billing` | in the sandbox below |
+| Cursor | reads the usage-meter snapshot `usage.json` (a file; nothing is run) | optional: the bundled `usage-meter-refresh.py` runs your usage-meter collector every 5 min — not sandboxed, see LOCAL-ADAPTERS.md |
+| Muse (parked) | none in normal app or probe | source retained for isolated diagnostics; no UI, credential reads or requests |
 
-**The sandbox.** `codex`, `agy` and `grok` run inside the macOS kernel sandbox profile
+**The CLI sandbox.** `codex`, `agy` and the retained diagnostic `muse` host run inside the macOS kernel sandbox profile
 [`Resources/cli.sb`](Resources/cli.sb): each CLI can start no program outside its own install folder — so
 no MCP server, hook or plugin you configured runs — and can read or write nothing in your home folder but
-its own state folder (`~/.codex`, `~/.gemini`, `~/.grok`), nor other users' folders, mounted volumes or
+its own state folder (`~/.codex`, `~/.gemini`, `~/.config/muse` + `~/.local/share/muse`), nor other users' folders, mounted volumes or
 shared temp. `agy` additionally needs `/usr/bin/security` and your keychain (that is where its sign-in
-lives), `/tmp` (its local helper). Every CLI may still `stat` a path (Node and Go resolve paths that way) — that
+lives), `/tmp` (its local helper); `muse` gets `/usr/bin/security` and the keychain as well, for the same reason. Every CLI may still `stat` a path (Node and Go resolve paths that way) — that
 reveals whether a path exists, never its contents or a folder listing. If the sandbox is unavailable,
 the CLI is not run at all.
 
 How it protects you:
 
-- **No credentials, ever.** No token, cookie, keychain item or credential file is opened by LimitBar.
+- **Muse parked.** The static active-provider gate blocks scheduling and Connect even with legacy opt-ins. See [LOCAL-ADAPTERS.md](LOCAL-ADAPTERS.md#muse-code).
 - **Minimal environment.** Each CLI gets only `HOME`, `USER`, `LOGNAME`, `TMPDIR`, `LANG` and a fixed
   `PATH` — none of your API keys, GitHub tokens or SSH agent socket.
 - **Only trustworthy executables.** A CLI is run only if it and its real file are owned by you or root
@@ -118,7 +121,7 @@ How it protects you:
 - **Private working directory.** CLIs run in an empty folder of LimitBar's own, never in a project.
 - **Hard limits.** One CLI at a time, 20–40 s deadline, the whole process group killed afterwards.
 - **What it stores.** `~/Library/Caches/limitbar/state.json` (percentages, reset times, plan names;
-  folder `0700`, files `0600`). No analytics, no network requests of its own.
+  folder `0700`, files `0600`). No analytics or identifiers. Parked Muse makes no normal-app request.
 - **Tested.** [`tests/claude-canary.sh`](tests/claude-canary.sh) proves canary hooks and MCP servers
   fire *without* the flags above and stay silent *with* them; [`tests/sandbox.sh`](tests/sandbox.sh)
   proves the sandbox; [`tests/states.sh`](tests/states.sh) covers missing, signed-out and
@@ -147,7 +150,7 @@ or quit LimitBar from its panel and delete `LimitBar` from Applications, `~/Appl
 
 ```bash
 scripts/build-app.sh build                  # → build/LimitBar.app (native arch)
-build/LimitBar.app/Contents/MacOS/LimitBar --probe   # what every CLI returns right now, as JSON
+build/LimitBar.app/Contents/MacOS/LimitBar --probe   # CLI/file diagnostics as JSON; native Muse remains setup
 tests/states.sh build/LimitBar.app
 tests/sandbox.sh
 tests/claude-canary.sh                      # needs Claude Code installed; makes no model call
@@ -156,4 +159,4 @@ tests/claude-canary.sh                      # needs Claude Code installed; makes
 ## License
 
 MIT. Service names and marks belong to their owners; LimitBar is not affiliated with Anthropic, Google,
-OpenAI or xAI. Icon credits: [Resources/marks/README.md](Resources/marks/README.md).
+OpenAI, Anysphere (Cursor) or Meta. Icon credits: [Resources/marks/README.md](Resources/marks/README.md).

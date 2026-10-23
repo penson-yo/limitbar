@@ -84,9 +84,9 @@ struct PanelView: View {
             VStack(spacing: 0) {
                 ForEach(Array(store.installed.enumerated()), id: \.element) { i, v in
                     if i > 0 { Hairline() }
-                    VendorSection(vendor: v, snap: store.snaps[v], busy: store.busy.contains(v))
+                    VendorSection(vendor: v, snap: store.snaps[v], busy: store.busy.contains(v), connectMuse: store.connectMuse)
                 }
-                let missing = Vendor.allCases.filter { !store.installed.contains($0) }
+                let missing = Vendor.activeVendors.filter { !store.installed.contains($0) }
                 if !missing.isEmpty {
                     if !store.installed.isEmpty { Hairline() }
                     MissingRow(vendors: missing)
@@ -141,6 +141,7 @@ private struct VendorSection: View {
     let vendor: Vendor
     let snap: Snapshot?
     let busy: Bool
+    let connectMuse: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -156,13 +157,20 @@ private struct VendorSection: View {
             let windows = snap?.windows ?? []
             ForEach(Array(windows.enumerated()), id: \.offset) { i, w in
                 MeterRow(window: w, vendor: vendor,
-                         style: i == 0 ? .primary : (w.label == "5-hour" || w.label == "Week" ? .normal : .quiet))
+                         style: i == 0 ? .primary : (w.label == "5-hour" || w.label == "Week" || vendor == .cursor ? .normal : .quiet))
                     .padding(.top, 7)
                     .opacity(isStale(snap) ? 0.48 : 1)
             }
             if snap?.state == .signedOut {
                 Text("Signed out — \(vendor.loginHint)").font(.system(size: 12)).foregroundStyle(.secondary)
                     .textSelection(.enabled).padding(.top, 7)
+            } else if Vendor.activeVendors.contains(.muse) && vendor == .muse && (snap?.state == .setup || snap?.state == .permissionNeeded) {
+                HStack(spacing: 6) {
+                    FooterButton(title: "Connect Muse", action: connectMuse).disabled(busy)
+                    if busy { ProgressView().controlSize(.small) }
+                }.padding(.top, 7)
+            } else if snap?.state == .setup {
+                Text("Not set up").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 7)
             } else if windows.isEmpty {
                 Text(busy ? "Reading…" : "—").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 7)
             }
@@ -250,8 +258,9 @@ private struct MeterRow: View {
         let kind = vendor == .gemini ? (window.short == "5h" ? "5-hour · " : "week · ") : ""
         guard let r = window.resetsAt else { return kind.isEmpty ? "" : String(kind.dropLast(3)) }
         let f = DateFormatter()
-        f.dateFormat = Calendar.current.isDateInToday(r) ? "HH:mm" : "EEE HH:mm"
-        return kind + (vendor == .grok ? "ends " : "resets ") + f.string(from: r)
+        // Beyond a week (Cursor's billing cycle) a weekday alone would be ambiguous: show the date.
+        f.dateFormat = Calendar.current.isDateInToday(r) ? "HH:mm" : r.timeIntervalSinceNow > 7 * 86400 ? "d MMM" : "EEE HH:mm"
+        return kind + "resets " + f.string(from: r)
     }
 }
 
@@ -283,3 +292,26 @@ private struct Track: View {
     }
 }
 
+
+// MARK: - Offscreen preview (`LimitBar --render-preview`, see main.swift)
+
+@MainActor func renderPreview(_ snaps: [Vendor: Snapshot], to path: String, dark: Bool) -> Bool {
+    let store = Store(preview: snaps)
+    let surface = dark ? Color(white: 0.17) : Color(white: 0.93)       // stands in for the popover glass
+    let view = VStack(alignment: .leading, spacing: 12) {
+        TrayView(store: store).background(RoundedRectangle(cornerRadius: 5).fill(surface))
+        PanelView(store: store, onQuit: {})
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(surface))
+    }
+    .padding(14)
+    .background(dark ? Color(white: 0.08) : Color(white: 0.78))
+    .environment(\.colorScheme, dark ? .dark : .light)
+    var png: Data?
+    NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+        let r = ImageRenderer(content: view)
+        r.scale = 2
+        if let cg = r.cgImage { png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) }
+    }
+    guard let data = png else { return false }
+    return (try? data.write(to: URL(fileURLWithPath: path))) != nil
+}

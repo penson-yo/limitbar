@@ -32,7 +32,8 @@ jobs:
       - run: scripts/build-app.sh build --universal
       - run: tests/states.sh build/LimitBar.app
       - run: tests/sandbox.sh
-      - name: fresh machine — no AI CLI installed, all four must read "missing"
+      - run: tests/local.sh build/LimitBar.app
+      - name: fresh machine — no AI CLI installed, four missing and Muse awaiting Connect
         run: |
           build/LimitBar.app/Contents/MacOS/LimitBar --probe | tee probe.json
-          /usr/bin/python3 -c 'import json; d=json.load(open("probe.json")); bad={k:v["state"] for k,v in d.items() if v["state"]!="missing"}; assert not bad, bad'
+          /usr/bin/python3 -c 'import json; d=json.load(open("probe.json")); assert set(d)=={"claude","codex","gemini","cursor","muse"}, set(d); bad={k:v["state"] for k,v in d.items() if v["state"] != ("setup" if k=="muse" else "missing")}; assert not bad, bad'

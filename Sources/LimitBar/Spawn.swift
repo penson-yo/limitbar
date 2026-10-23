@@ -140,7 +140,7 @@ enum CLI {
 
     /// Where the vendor CLIs install themselves. Fixed: PATH is never taken from the environment, so a
     /// directory added by some other tool is never searched.
-    static let searchPath = ["\(home)/.local/bin", "\(home)/.grok/bin", "/opt/homebrew/bin", "/usr/local/bin",
+    static let searchPath = ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin",
                              "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.volta/bin"]
     static let systemPath = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
 

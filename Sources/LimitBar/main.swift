@@ -3,14 +3,17 @@ import Foundation
 
 let args = CommandLine.arguments
 
-// `LimitBar --probe` asks every CLI once and prints what limitbar would show, as JSON:
+// `LimitBar --probe` asks each active source once and prints what limitbar would show, as JSON:
 // state (ok / missing / untrusted / signedOut / failed), plan, windows. Nothing else of the account.
 if args.contains("--probe") {
     let enc = JSONEncoder()
     enc.outputFormatting = [.prettyPrinted, .sortedKeys]
     enc.dateEncodingStrategy = .iso8601
     var all: [String: Snapshot] = [:]
-    for v in Vendor.allCases {
+    // Parked host fixtures require explicit overrides for every source; never native credentials.
+    let diagnostic = args.contains("--muse-host-diagnostic") &&
+        ["-claudePath", "-agyPath", "-codexPath", "-cursorUsagePath", "-musePath"].allSatisfy { args.contains($0) }
+    for v in diagnostic ? Vendor.allCases : Vendor.activeVendors {
         switch v {
         case .claude:
             var s: Snapshot
@@ -21,7 +24,11 @@ if args.contains("--probe") {
             all[v.rawValue] = s
         case .gemini: all[v.rawValue] = Fetch.gemini()
         case .codex: all[v.rawValue] = Fetch.codexFromServer()
-        case .grok: all[v.rawValue] = Fetch.grok()
+        case .cursor: all[v.rawValue] = Fetch.cursor()
+        case .muse:
+            // Explicit diagnostic with an explicit trusted binary only; default probe never reads Muse secrets/HTTP.
+            all[v.rawValue] = args.contains("--muse-host-diagnostic") && args.contains("-musePath")
+                ? Fetch.museHost() : Fetch.muse()
         }
     }
     print(String(decoding: (try? enc.encode(all)) ?? Data(), as: UTF8.self))
@@ -40,7 +47,7 @@ if args.contains("--statusline") {
     for (kind, value) in rl {
         guard let w = value as? [String: Any] else { continue }
         var pct = ["used_percentage", "used_percent", "percentUsed", "percent", "utilization"].lazy
-            .compactMap { w[$0] as? Double }.first
+            .compactMap { number(w[$0]) }.first
         if let p = pct, p <= 1, w["utilization"] != nil { pct = p * 100 }
         guard let p = percent(pct) else { continue }
         limits[kind] = ["percent": p, "resets_at": w["resets_at"] ?? w["resetsAt"] ?? w["reset_at"] ?? NSNull()]
@@ -56,6 +63,19 @@ if args.contains("--statusline") {
     let model = ((blob["model"] as? [String: Any])?["display_name"] as? String) ?? "Claude"
     print(([model] + parts).joined(separator: " · "))
     exit(0)
+}
+
+// `LimitBar --render-preview <snapshots.json> <out.png> [--dark]` draws the menu-bar item and the panel for
+// the given snapshots (the --probe format) into a PNG, offscreen: no status item, no fetch, no cache. A
+// check of layout and wording only — the real panel's glass and the menu bar itself are not in the picture.
+if let i = args.firstIndex(of: "--render-preview"), i + 2 < args.count {
+    let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+    guard let d = FileManager.default.contents(atPath: args[i + 1]),
+          let all = try? dec.decode([String: Snapshot].self, from: d) else { print("unreadable snapshots"); exit(1) }
+    var snaps: [Vendor: Snapshot] = [:]
+    for (k, v) in all { if let vendor = Vendor(rawValue: k) { snaps[vendor] = v } }
+    let ok = MainActor.assumeIsolated { renderPreview(snaps, to: args[i + 2], dark: args.contains("--dark")) }
+    exit(ok ? 0 : 1)
 }
 
 let app = NSApplication.shared

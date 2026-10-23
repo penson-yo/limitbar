@@ -5,17 +5,24 @@ import Foundation
 /// Every source is the vendor's own CLI (or a file limitbar's own
 /// statusline helper writes), so sign-in and token refresh stay inside the CLI — limitbar never opens a
 /// credential file, cookie or keychain item, and keeps nothing of an account but the plan name.
+/// Local additions (see LOCAL-ADAPTERS.md): Cursor is read from the usage-meter snapshot file, whose own
+/// collector handles Cursor's sign-in; Muse is asked through its own `muse serve` host, only when turned on.
 enum Fetch {
     static let home = CLI.home
     static let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
     }()
+    /// UI dates are supported from 2000-01-01 inclusive through 2100-01-01 exclusive (UTC).
+    static func supportedDate(seconds: Double) -> Date? {
+        guard seconds.isFinite, seconds >= 946_684_800, seconds < 4_102_444_800 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
     static func date(_ any: Any?) -> Date? {
-        if let n = any as? Double { return Date(timeIntervalSince1970: n > 1e12 ? n / 1000 : n) }
-        if let n = any as? Int { return Date(timeIntervalSince1970: Double(n)) }
+        if let n = number(any) { return supportedDate(seconds: n > 1e12 ? n / 1000 : n) }
         if let s = any as? String {
-            return iso.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+            let parsed = iso.date(from: s) ?? ISO8601DateFormatter().date(from: s)
                 ?? ISO8601DateFormatter().date(from: s.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression))
+            return parsed.flatMap { supportedDate(seconds: $0.timeIntervalSince1970) }
         }
         return nil
     }
@@ -148,7 +155,7 @@ enum Fetch {
         for g in groups {
             let name = g["name"] as? String ?? "Models"
             for bucket in g["buckets"] as? [[String: Any]] ?? [] {
-                guard let rf = bucket["remaining_fraction"] as? Double, rf.isFinite, rf >= 0, rf <= 1 else { continue }
+                guard let rf = number(bucket["remaining_fraction"]), rf.isFinite, rf >= 0, rf <= 1 else { continue }
                 let five = (bucket["window"] as? String) == "5h"
                 let w = Window(label: name, short: five ? "5h" : "w",
                                used: (1 - rf) * 100, resetsAt: date(bucket["reset_time"]))
@@ -224,31 +231,6 @@ enum Fetch {
         return Snapshot(vendor: .codex, plan: plan, bar: five ?? week, windows: [five, week].compactMap { $0 }, measuredAt: measured)
     }
 
-    // MARK: Grok — Grok Build's ACP extension `_x.ai/billing` (what its /usage screen reads).
-
-    static func grok() -> Snapshot {
-        let (b, why) = binary(.grok)
-        guard let link = b else { return why! }
-        guard let box = Sandbox.wrap(.grok, link, ["agent", "stdio"]) else {
-            return .status(.grok, .failed, "sandbox unavailable — grok not run")
-        }
-        switch CLI.rpc(box.argv, binary: box.binary, initialize: ["protocolVersion": 1, "clientCapabilities": [String: Any]()],
-                       method: "_x.ai/billing",
-                       extraEnv: box.env.merging(["GROK_SUBAGENTS": "0", "GROK_MEMORY": "0", "GROK_WEB_FETCH": "0"]) { $1 }) {
-        case .failed(let e):
-            return .status(.grok, signedOutText(e) ? .signedOut : .failed, signedOutText(e) ? nil : "grok gave no billing answer")
-        case .ok(let r):
-            guard let c = r["config"] as? [String: Any] else { return .status(.grok, .failed, "grok gave no billing") }
-            let period = c["currentPeriod"] as? [String: Any]
-            let weekly = (period?["type"] as? String)?.contains("WEEKLY") ?? true
-            // creditUsagePercent is a 0–100 percentage (1.0 = 1 %).
-            let w = Window(label: weekly ? "Weekly credits" : "Credits", short: weekly ? "w" : "",
-                           used: percent(c["creditUsagePercent"]), resetsAt: date(period?["end"] ?? c["billingPeriodEnd"]))
-            return Snapshot(vendor: .grok, plan: (r["subscription_tier"] as? String) ?? "", bar: w, windows: [w],
-                            measuredAt: Date())
-        }
-    }
-
     static func relativeDay(_ d: Date) -> String {
         let f = DateFormatter(); f.dateFormat = "HH:mm"
         let cal = Calendar.current
@@ -298,8 +280,12 @@ enum Sandbox {
               let bin = real(link), let tmp = real(CLI.workDir), let home = real(CLI.home) else { return nil }
         let dir = (bin as NSString).deletingLastPathComponent
         let state: String, execDir: String
+        var state2 = "/nonexistent-limitbar"
         switch v {
-        case .grok: state = "\(home)/.grok"; execDir = dir
+        case .muse:
+            // Muse keeps its sign-in metadata in ~/.config/muse and its data in ~/.local/share/muse. Only the
+            // one native binary may start (EXECDIR = the binary itself, not all of ~/.local/bin).
+            state = "\(home)/.config/muse"; state2 = "\(home)/.local/share/muse"; execDir = bin
         case .codex:
             // Homebrew: <Caskroom>/codex/<version>/bin/codex → the version folder. npm: <node_modules>/@openai/codex/
             // bin/codex.js starts a native binary from the sibling package @openai/codex-<platform> → the whole
@@ -309,18 +295,20 @@ enum Sandbox {
             let parent = (pkg as NSString).deletingLastPathComponent
             execDir = (parent as NSString).lastPathComponent.hasPrefix("@") ? parent : pkg
         case .gemini: state = "\(home)/.gemini"; execDir = "\(home)/.gemini/antigravity-cli/bin"
-        case .claude: return nil
+        case .claude, .cursor: return nil
         }
         // A script CLI (npm's `#!/usr/bin/env node`) is started through its checked interpreter, explicitly.
         guard let start = CLI.launch(bin), let interp = start.first else { return nil }
-        // agy signs in through /usr/bin/security and the keychain and talks to its helper over /tmp; every
-        // other CLI gets none of that.
+        // agy signs in through /usr/bin/security and the keychain and talks to its helper over /tmp; muse keeps
+        // its sign-in in the keychain too (opt-in host reads only). Every other CLI gets none of that.
         let none = "/nonexistent-limitbar"
         let agy = v == .gemini
+        let keychain = agy || v == .muse
         let argv = ["/usr/bin/sandbox-exec", "-f", profile, "-D", "HOME=\(home)", "-D", "EXEC=\(bin)",
-                    "-D", "INTERP=\(interp)", "-D", "EXECDIR=\(execDir)", "-D", "STATE=\(state)", "-D", "PTMP=\(tmp)",
-                    "-D", "HELPER=\(agy ? "/usr/bin/security" : none)",
-                    "-D", "KEYCHAINS=\(agy ? "\(home)/Library/Keychains" : none)",
+                    "-D", "INTERP=\(interp)", "-D", "EXECDIR=\(execDir)", "-D", "STATE=\(state)",
+                    "-D", "STATE2=\(state2)", "-D", "PTMP=\(tmp)",
+                    "-D", "HELPER=\(keychain ? "/usr/bin/security" : none)",
+                    "-D", "KEYCHAINS=\(keychain ? "\(home)/Library/Keychains" : none)",
                     "-D", "SHAREDTMP=\(agy ? "/private/tmp" : none)",
                     ] + start + args
         return Box(argv: argv, binary: bin, env: ["TMPDIR": tmp + "/"])

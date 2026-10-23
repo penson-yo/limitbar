@@ -1,5 +1,5 @@
 #!/bin/bash
-# Proves Resources/cli.sb, the sandbox codex, agy and grok run in: only the CLI's own program may start,
+# Proves Resources/cli.sb, the sandbox codex, agy and muse run in: only the CLI's own program may start,
 # and nothing in $HOME but its own state folder can be read or written; shared temp is closed too.
 # /bin/bash stands in for the CLI, so this needs no AI CLI installed. Only shell builtins run inside —
 # any external command would be blocked by the exec rule itself.
@@ -12,7 +12,7 @@ mkdir -p "$STATE"; P=probe-$$
 echo x > "$STATE/$P"; echo x > "$H/$P"; echo x > "/private/tmp/$P"
 trap 'rm -rf "$STATE" "$H/$P" "$H/$P.new" "/private/tmp/$P" "$PT"' EXIT
 run() { /usr/bin/sandbox-exec -f "$SB" -D HOME="$H" -D EXEC=/bin/bash -D INTERP=/bin/bash -D EXECDIR=/nonexistent \
-          -D STATE="$STATE" -D PTMP="$PT" -D HELPER=/nonexistent -D KEYCHAINS=/nonexistent \
+          -D STATE="$STATE" -D STATE2=/nonexistent -D PTMP="$PT" -D HELPER=/nonexistent -D KEYCHAINS=/nonexistent \
           -D SHAREDTMP=/nonexistent /bin/bash -c "$1" 2>/dev/null; }
 fail=0
 check() { if run "$2"; then r=allowed; else r=denied; fi; [[ "$r" == "$1" ]] && echo "ok   $3: $r" || { echo "FAIL $3: $r"; fail=1; }; }

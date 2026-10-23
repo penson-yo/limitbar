@@ -1,11 +1,13 @@
-;; cli.sb — the macOS Seatbelt profile LimitBar runs codex, agy and grok under (sandbox-exec), to ask each
+;; cli.sb — the macOS Seatbelt profile LimitBar runs codex, agy and muse under (sandbox-exec), to ask each
 ;; one a single quota question. Parameters (set by Sandbox.wrap in Sources/LimitBar/Fetchers.swift):
-;;   HOME     your home folder            STATE   the CLI's own folder (~/.codex, ~/.gemini, ~/.grok)
+;;   HOME     your home folder            STATE   the CLI's own folder (~/.codex, ~/.gemini, ~/.config/muse)
+;;   STATE2   a second own folder, for muse only (~/.local/share/muse); else it points nowhere
 ;;   EXEC     the CLI's executable        EXECDIR the CLI's own install folder
 ;;   INTERP   its interpreter, if it is a script (else = EXEC)
 ;;   PTMP     LimitBar's private 0700 temp folder (the CLI's working directory and TMPDIR)
 ;; Only for agy (Google Antigravity), which needs them to sign in and to reach its local helper; for the
-;; other CLIs they point nowhere:
+;; other CLIs they point nowhere — except that muse (opt-in host reads) also gets HELPER and KEYCHAINS,
+;; because its sign-in lives in the keychain too:
 ;;   HELPER   /usr/bin/security (reads agy's sign-in from your keychain)
 ;;   KEYCHAINS ~/Library/Keychains     SHAREDTMP /private/tmp
 ;; The CLI may start no program outside its own install folder — so no MCP server, hook or plugin
@@ -27,13 +29,13 @@
 ;; existence, type and size of a path the CLI already knows; no file contents, no directory listings.
 (allow file-read-metadata)
 ;; ... except the CLI's own state, install folder and LimitBar's private temp
-(allow file-read* file-write* (subpath (param "STATE")) (subpath (param "PTMP")))
+(allow file-read* file-write* (subpath (param "STATE")) (subpath (param "STATE2")) (subpath (param "PTMP")))
 (allow file-read* (subpath (param "EXECDIR")) (literal (param "EXEC")) (literal (param "INTERP")))
 
 ;; ---- writes: nowhere else ----
-(deny file-write* (require-not (require-any (subpath (param "STATE")) (subpath (param "PTMP")))))
+(deny file-write* (require-not (require-any (subpath (param "STATE")) (subpath (param "STATE2")) (subpath (param "PTMP")))))
 (allow file-write* (literal "/dev/null") (literal "/dev/tty") (regex #"^/dev/fd/") (regex #"^/dev/ttys"))
 
-;; ---- agy only (see parameters above) ----
+;; ---- agy (and muse) only (see parameters above) ----
 (allow process-exec (literal (param "HELPER")))
 (allow file-read* file-write* (subpath (param "KEYCHAINS")) (subpath (param "SHAREDTMP")))

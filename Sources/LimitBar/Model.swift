@@ -1,19 +1,58 @@
 import Foundation
 
 enum Vendor: String, CaseIterable, Codable {
-    case claude, gemini, codex, grok
+    case claude, gemini, codex, cursor, muse
 
-    var name: String { ["claude": "Claude", "gemini": "Gemini", "codex": "Codex", "grok": "Grok"][rawValue]! }
-    /// The CLI limitbar asks, and what the panel suggests when it is missing or signed out.
-    var cli: String { ["claude": "claude", "gemini": "agy", "codex": "codex", "grok": "grok"][rawValue]! }
+    // Approved application sources. Muse stays compiled for isolated diagnostics only.
+    static let activeVendors: [Vendor] = [.claude, .gemini, .codex, .cursor]
+
+    var name: String {
+        switch self {
+        case .claude: "Claude"
+        case .gemini: "Gemini"
+        case .codex: "Codex"
+        case .cursor: "Cursor"
+        case .muse: "Muse"
+        }
+    }
+    /// The CLI limitbar asks, and what the panel suggests when it is missing or signed out. Cursor has no CLI
+    /// here: its numbers come from the local usage-meter snapshot (Fetch.cursor).
+    var cli: String {
+        switch self {
+        case .claude: "claude"
+        case .gemini: "agy"
+        case .codex: "codex"
+        case .cursor: "usage-meter"
+        case .muse: "muse"
+        }
+    }
     var product: String {
-        ["claude": "Claude Code", "gemini": "Google Antigravity CLI", "codex": "Codex CLI", "grok": "Grok Build"][rawValue]!
+        switch self {
+        case .claude: "Claude Code"
+        case .gemini: "Google Antigravity CLI"
+        case .codex: "Codex CLI"
+        case .cursor: "Cursor usage meter"
+        case .muse: "Muse Code"
+        }
     }
     var loginHint: String {
-        ["claude": "run `claude`, then /login", "gemini": "run `agy` once and sign in",
-         "codex": "run `codex login`", "grok": "run `grok login`"][rawValue]!
+        switch self {
+        case .claude: "run `claude`, then /login"
+        case .gemini: "run `agy` once and sign in"
+        case .codex: "run `codex login`"
+        case .cursor: "run usage-meter's bin/setup-cursor-session"
+        case .muse: "run `muse login`"
+        }
     }
-    var mark: String { ["claude": "claude", "gemini": "gemini", "codex": "openai", "grok": "xai"][rawValue]! }
+    var mark: String {
+        switch self {
+        case .claude: "claude"
+        case .gemini: "gemini"
+        case .codex: "openai"
+        case .cursor: "cursor"
+        case .muse: "meta"
+        }
+    }
 }
 
 /// Why a vendor shows no numbers. `ok` = the CLI answered.
@@ -23,6 +62,8 @@ enum VendorState: String, Codable {
     case untrusted      // found, but owned by another account or group/world-writable: never run
     case signedOut      // the CLI says nobody is signed in
     case failed         // it ran and did not give limits (timeout, error, changed format)
+    case permissionNeeded // native Muse needs an explicit Connect action
+    case setup          // signed in, but its quota source is off until you turn it on (see README)
 }
 
 /// One limit window as the vendor reports it. `used` is percent USED, 0–100.
@@ -56,17 +97,23 @@ struct Snapshot: Codable, Equatable {
     }
 }
 
+/// A plain JSON number: booleans (which JSONSerialization also hands over as NSNumber) are not numbers.
+func number(_ any: Any?) -> Double? {
+    guard let n = any as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+    return n.doubleValue
+}
+
 /// A percentage from a CLI is only used when it is a finite number in 0…100.
 func percent(_ any: Any?) -> Double? {
-    let v: Double?
-    switch any {
-    case let d as Double: v = d
-    case let i as Int: v = Double(i)
-    case let n as NSNumber: v = n.doubleValue
-    default: v = nil
-    }
-    guard let x = v, x.isFinite, x >= 0, x <= 100 else { return nil }
+    guard let x = number(any), x.isFinite, x >= 0, x <= 100 else { return nil }
     return x
+}
+
+/// A percentage that may honestly exceed 100 (Muse reports over-quota use; Cursor's usage meter passes on
+/// what Cursor says). Over 100 shows as 100 and is flagged; anything else out of range is unknown.
+func overPercent(_ any: Any?) -> (used: Double, over: Bool)? {
+    guard let x = number(any), x.isFinite, x >= 0, x <= 1000 else { return nil }
+    return (min(x, 100), x > 100)
 }
 
 /// Bar digit: rounded, but 99.6 % must never read as 100 %.

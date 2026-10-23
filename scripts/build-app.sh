@@ -26,6 +26,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/marks"
 cp "$BIN" "$APP/Contents/MacOS/LimitBar"
 cp Resources/marks/*.svg "$APP/Contents/Resources/marks/"
 cp Resources/cli.sb "$APP/Contents/Resources/cli.sb"
+cp Resources/usage-meter-refresh.py "$APP/Contents/Resources/usage-meter-refresh.py"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
