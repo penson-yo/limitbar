@@ -73,5 +73,46 @@ check("muse exact floor eligible", store.fixturePoll(age: 1800, force: true, old
 check("muse in-flight prevents duplicate", !store.fixturePoll(age: 1801, force: true, olderThan: nil, isBusy: true))
 check("muse monotonic future completion refuses override", !store.fixturePoll(age: -10, force: true, olderThan: 0))
 check("collector captured note survives main status replacement", store.fixtureCapturedNote())
+
+let fakeACL = OpaquePointer(bitPattern: 0x1)!
+let fakeEntry = OpaquePointer(bitPattern: 0x2)!
+let fakePerms = OpaquePointer(bitPattern: 0x3)!
+check("Swift ACL NULL + ENOENT is normal no-ACL", !CLI.aclGrantsWrite(
+    "/synthetic", getACL: { _ in errno = ENOENT; return nil }, freeACL: { _ in 0 },
+    getEntry: { _, _, _ in -1 }, getTag: { _, _ in 0 }, getPermset: { _, _ in 0 }, getPerm: { _, _ in 0 }))
+check("Swift ACL NULL + EACCES fails closed", CLI.aclGrantsWrite(
+    "/synthetic", getACL: { _ in errno = EACCES; return nil }, freeACL: { _ in 0 },
+    getEntry: { _, _, _ in -1 }, getTag: { _, _ in 0 }, getPermset: { _, _ in 0 }, getPerm: { _, _ in 0 }))
+var seenEntries = 0
+check("Swift ACL read-only entry + normal EINVAL end is allowed", !CLI.aclGrantsWrite(
+    "/synthetic", getACL: { _ in fakeACL }, freeACL: { _ in 0 },
+    getEntry: { _, which, out in
+        if which == ACL_FIRST_ENTRY.rawValue { seenEntries += 1; out.pointee = fakeEntry; return 0 }
+        errno = EINVAL; return -1
+    },
+    getTag: { _, tag in tag.pointee = ACL_EXTENDED_ALLOW; return 0 },
+    getPermset: { _, perms in perms.pointee = fakePerms; return 0 },
+    getPerm: { _, _ in 0 }) && seenEntries == 1)
+check("Swift ACL iteration error (EIO) fails closed", CLI.aclGrantsWrite(
+    "/synthetic", getACL: { _ in fakeACL }, freeACL: { _ in 0 },
+    getEntry: { _, _, _ in errno = EIO; return -1 },
+    getTag: { _, _ in 0 }, getPermset: { _, _ in 0 }, getPerm: { _, _ in 0 }))
+check("Swift ACL tag inspection error fails closed", CLI.aclGrantsWrite(
+    "/synthetic", getACL: { _ in fakeACL }, freeACL: { _ in 0 },
+    getEntry: { _, which, out in
+        if which == ACL_FIRST_ENTRY.rawValue { out.pointee = fakeEntry; return 0 }
+        errno = EINVAL; return -1
+    },
+    getTag: { _, _ in errno = EINVAL; return -1 },
+    getPermset: { _, _ in 0 }, getPerm: { _, _ in 0 }))
+check("Swift ACL perm inspection error (-1) fails closed", CLI.aclGrantsWrite(
+    "/synthetic", getACL: { _ in fakeACL }, freeACL: { _ in 0 },
+    getEntry: { _, which, out in
+        if which == ACL_FIRST_ENTRY.rawValue { out.pointee = fakeEntry; return 0 }
+        errno = EINVAL; return -1
+    },
+    getTag: { _, tag in tag.pointee = ACL_EXTENDED_ALLOW; return 0 },
+    getPermset: { _, perms in perms.pointee = fakePerms; return 0 },
+    getPerm: { _, _ in errno = EINVAL; return -1 }))
 print(failures == 0 ? "PASS: Swift fixes" : "Swift fixes FAILED")
 exit(failures == 0 ? 0 : 1)

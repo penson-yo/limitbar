@@ -21,6 +21,7 @@ import argparse
 import contextlib
 import ctypes
 import datetime
+import errno
 import fcntl
 import importlib.util
 import json
@@ -43,25 +44,31 @@ def acl_grants_write(path: str) -> bool:
         libc.acl_get_tag_type.argtypes = [ptr, ctypes.POINTER(ctypes.c_int)]
         libc.acl_get_permset.argtypes = [ptr, ctypes.POINTER(ptr)]
         libc.acl_get_perm_np.argtypes = [ptr, ctypes.c_uint32]
+        ctypes.set_errno(0)
         acl = libc.acl_get_link_np(os.fsencode(path), 0x100)  # ACL_TYPE_EXTENDED
         if not acl:
-            return False  # no ACL, as in CLI.aclGrantsWrite
+            return ctypes.get_errno() != errno.ENOENT  # Darwin sets ENOENT when no extended ACL exists
         try:
             entry, which = ptr(), 0  # ACL_FIRST_ENTRY; ACL_NEXT_ENTRY = -1
-            while libc.acl_get_entry(acl, which, ctypes.byref(entry)) == 0:
+            while True:
+                ctypes.set_errno(0)
+                rc = libc.acl_get_entry(acl, which, ctypes.byref(entry))
+                if rc != 0:
+                    return not (rc == -1 and ctypes.get_errno() == errno.EINVAL)
+                if not entry:
+                    return True
                 which = -1
                 tag, perms = ctypes.c_int(), ptr()
                 if libc.acl_get_tag_type(entry, ctypes.byref(tag)) != 0:
                     return True
                 if tag.value != 1:  # ACL_EXTENDED_ALLOW
                     continue
-                if libc.acl_get_permset(entry, ctypes.byref(perms)) != 0:
+                if libc.acl_get_permset(entry, ctypes.byref(perms)) != 0 or not perms:
                     return True
                 for bit in (2, 4, 5, 6, 8, 10, 12, 13):
                     result = libc.acl_get_perm_np(perms, 1 << bit)
                     if result != 0:
                         return True
-            return False
         finally:
             libc.acl_free(acl)
     except (OSError, AttributeError):

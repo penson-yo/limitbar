@@ -122,6 +122,75 @@ def write_snapshot(s):
         check("standalone helper refuses ACL-writable " + where, response.returncode == 1 and json.loads(response.stdout) == {"status": "untrusted"})
         check("ACL fixture was never executed: " + where, not (path.parent / "usage.json").exists())
 
+    read_acl = collector("acl-read-only", base)
+    acl = run(["/bin/chmod", "+a", "everyone allow read", str(read_acl)])
+    check("synthetic read-only extended ACL applied", acl.returncode == 0)
+    check("Swift accepts read-only ACL after normal iteration end", run([str(harness), "trust", str(read_acl)]).stdout.strip() == "trusted")
+    response = run(command(read_acl))
+    check("standalone helper accepts read-only ACL after normal iteration end", response.returncode == 0 and json.loads(response.stdout)["status"] == "refreshed")
+
+    import ctypes, errno, importlib.util
+    spec = importlib.util.spec_from_file_location("um_helper", str(HELPER))
+    um_helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(um_helper)
+
+    class FakeFn:
+        def __init__(self, fn):
+            self.fn = fn
+        def __call__(self, *a):
+            return self.fn(*a)
+
+    def make_fake_cdll(get_acl, get_entry, get_tag=None, get_permset=None, get_perm=None):
+        class FakeLib:
+            def __init__(self):
+                self.freed = 0
+                self.acl_get_link_np = FakeFn(get_acl)
+                self.acl_free = FakeFn(lambda a: setattr(self, "freed", self.freed + 1) or 0)
+                self.acl_get_entry = FakeFn(get_entry)
+                self.acl_get_tag_type = FakeFn(get_tag or (lambda e, t: 0))
+                self.acl_get_permset = FakeFn(get_permset or (lambda e, p: 0))
+                self.acl_get_perm_np = FakeFn(get_perm or (lambda p, b: 0))
+        return FakeLib()
+
+    real_cdll = ctypes.CDLL
+    try:
+        # 1. Normal no-ACL: NULL + ENOENT -> False (safe)
+        lib = make_fake_cdll(lambda p, t: (ctypes.set_errno(errno.ENOENT), None)[1], lambda a, w, e: -1)
+        ctypes.CDLL = lambda *a, **k: lib
+        check("helper ACL NULL + ENOENT is normal no-ACL", um_helper.acl_grants_write(str(clean)) is False)
+
+        # 2. Injected NULL + EACCES -> True (fail closed) and trusted_collector rejects
+        lib = make_fake_cdll(lambda p, t: (ctypes.set_errno(errno.EACCES), None)[1], lambda a, w, e: -1)
+        ctypes.CDLL = lambda *a, **k: lib
+        check("helper ACL NULL + EACCES fails closed", um_helper.acl_grants_write(str(clean)) is True and um_helper.trusted_collector(str(clean)) is False)
+
+        # 3. Normal iteration end: 1 read-only ALLOW entry, then -1 + EINVAL -> False (safe)
+        def entry_normal(a, w, e):
+            if w == 0:
+                ctypes.cast(e, ctypes.POINTER(ctypes.c_void_p))[0] = 0x2000
+                return 0
+            ctypes.set_errno(errno.EINVAL)
+            return -1
+        def tag_allow(e, t):
+            ctypes.cast(t, ctypes.POINTER(ctypes.c_int))[0] = 1
+            return 0
+        def permset_ok(e, p):
+            ctypes.cast(p, ctypes.POINTER(ctypes.c_void_p))[0] = 0x3000
+            return 0
+        lib = make_fake_cdll(lambda p, t: 0x1000, entry_normal, get_tag=tag_allow, get_permset=permset_ok, get_perm=lambda p, b: 0)
+        ctypes.CDLL = lambda *a, **k: lib
+        check("helper ACL normal iteration end (-1 + EINVAL) is allowed", um_helper.acl_grants_write(str(clean)) is False and lib.freed == 1)
+
+        # 4. Iteration error: -1 + EIO -> True (fail closed) and trusted_collector rejects
+        def entry_err(a, w, e):
+            ctypes.set_errno(errno.EIO)
+            return -1
+        lib = make_fake_cdll(lambda p, t: 0x1000, entry_err)
+        ctypes.CDLL = lambda *a, **k: lib
+        check("helper ACL iteration error (-1 + EIO) fails closed", um_helper.acl_grants_write(str(clean)) is True and um_helper.trusted_collector(str(clean)) is False and lib.freed >= 1)
+    finally:
+        ctypes.CDLL = real_cdll
+
     noisy = collector("fd-noise", '''
 import os,subprocess,sys
 os.write(1,b'SYNTHETIC_IMPORT_FD_MARKER\\n'); os.write(2,b'SYNTHETIC_IMPORT_ERR_MARKER\\n')

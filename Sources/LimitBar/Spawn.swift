@@ -203,21 +203,43 @@ enum CLI {
 
     /// Any ALLOW entry in the extended ACL that lets someone write, delete or change ownership/permissions.
     static func aclGrantsWrite(_ p: String) -> Bool {
-        guard let acl = acl_get_link_np(p, ACL_TYPE_EXTENDED) else { return false }    // no ACL
-        defer { acl_free(UnsafeMutableRawPointer(acl)) }
+        aclGrantsWrite(p, getACL: { acl_get_link_np($0, ACL_TYPE_EXTENDED) },
+                       freeACL: { acl_free(UnsafeMutableRawPointer($0)) },
+                       getEntry: { acl_get_entry($0, $1, $2) },
+                       getTag: { acl_get_tag_type($0, $1) },
+                       getPermset: { acl_get_permset($0, $1) },
+                       getPerm: { acl_get_perm_np($0, $1) })
+    }
+
+    static func aclGrantsWrite(
+        _ p: String,
+        getACL: (String) -> acl_t?,
+        freeACL: (acl_t) -> Int32,
+        getEntry: (acl_t, Int32, UnsafeMutablePointer<acl_entry_t?>) -> Int32,
+        getTag: (acl_entry_t, UnsafeMutablePointer<acl_tag_t>) -> Int32,
+        getPermset: (acl_entry_t, UnsafeMutablePointer<acl_permset_t?>) -> Int32,
+        getPerm: (acl_permset_t, acl_perm_t) -> Int32
+    ) -> Bool {
+        errno = 0
+        guard let acl = getACL(p) else { return errno != ENOENT }    // Darwin sets ENOENT when no extended ACL exists
+        defer { _ = freeACL(acl) }
         let writes: [acl_perm_t] = [ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_DELETE, ACL_DELETE_CHILD,
                                     ACL_WRITE_ATTRIBUTES, ACL_WRITE_EXTATTRIBUTES, ACL_WRITE_SECURITY, ACL_CHANGE_OWNER]
         var entry: acl_entry_t?
         var which = ACL_FIRST_ENTRY.rawValue
-        while acl_get_entry(acl, which, &entry) == 0, let e = entry {
+        while true {
+            errno = 0
+            let rc = getEntry(acl, which, &entry)
+            if rc != 0 { return !(rc == -1 && errno == EINVAL) }
+            guard let e = entry else { return true }
             which = ACL_NEXT_ENTRY.rawValue
             var tag = ACL_UNDEFINED_TAG
-            guard acl_get_tag_type(e, &tag) == 0, tag == ACL_EXTENDED_ALLOW else { continue }
+            guard getTag(e, &tag) == 0 else { return true }
+            guard tag == ACL_EXTENDED_ALLOW else { continue }
             var perms: acl_permset_t?
-            guard acl_get_permset(e, &perms) == 0, let ps = perms else { return true }
-            if writes.contains(where: { acl_get_perm_np(ps, $0) == 1 }) { return true }
+            guard getPermset(e, &perms) == 0, let ps = perms else { return true }
+            if writes.contains(where: { getPerm(ps, $0) != 0 }) { return true }
         }
-        return false
     }
 
     /// The environment a CLI gets is an allowlist, not ours minus a denylist: API keys, GitHub tokens, SSH
