@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Packaged usage-meter tool.** Integrated the local usage quota collector into `tools/usage-meter` (provenance `f190de5`) with dynamic Cursor account store discovery and portable setup documentation.
+
 ## 1.0.3
 
 - **App icon.** LimitBar now has its own icon in Finder, Spotlight and Launchpad (it had the generic one).

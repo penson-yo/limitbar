@@ -5,7 +5,7 @@ Codex, Gemini (Google Antigravity) and Cursor; hover for the 5-hour and weekly w
 they reset.
 
 > **Local build.** This branch drops Grok Build and adds Cursor (read from a local
-> [usage-meter](LOCAL-ADAPTERS.md#cursor) snapshot). Muse is parked: this build has four static active providers, no Muse UI, Connect action or automatic reads, regardless of old preferences/cache. The retained Muse adapter is for isolated fixtures only. Cursor goes beyond upstream's "only the official CLI" rule:
+> [usage-meter](tools/usage-meter/README.md) snapshot). Muse is parked: this build has four static active providers, no Muse UI, Connect action or automatic reads, regardless of old preferences/cache. The retained Muse adapter is for isolated fixtures only. Cursor goes beyond upstream's "only the official CLI" rule:
 > read [LOCAL-ADAPTERS.md](LOCAL-ADAPTERS.md) before turning anything on.
 
 ![LimitBar in the menu bar with its hover panel open](docs/screenshot.png)
@@ -55,7 +55,7 @@ the CLI itself — once:
 | Claude (Pro / Max) | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) `claude` | run `claude`, then `/login` | 5-hour window |
 | Codex (ChatGPT plans) | [Codex CLI](https://github.com/openai/codex) `codex` | `codex login` | 5-hour window |
 | Gemini | [Google Antigravity CLI](https://antigravity.google) `agy` | run `agy` once | the most-used Gemini quota (often weekly) |
-| Cursor | none — the local usage-meter snapshot (`usage.json`) | usage-meter's `bin/setup-cursor-session` | the plan's included pool; "!" when Other models is ≥ 90 % |
+| Cursor | none — the local usage-meter snapshot (`usage.json`) | `tools/usage-meter/bin/setup-cursor-session` | the plan's included pool; "!" when Other models is ≥ 90 % |
 
 Installed somewhere else? Point LimitBar at it:
 `defaults write io.github.dancik.limitbar codexPath /full/path/to/codex` (same for `claudePath`,
@@ -99,7 +99,7 @@ LimitBar uses these sources:
 | Claude | `claude -p /usage --output-format json --max-turns 1 --restricted --strict-mcp-config --no-session-persistence --settings '{"disableAllHooks":true}'` | no model call; your hooks, MCP servers and settings files are not loaded; no transcript saved |
 | Codex | reads `rate_limits` lines from `~/.codex/sessions/<today>/*.jsonl`; `codex app-server` → `account/rateLimits/read`; `codex login status` | in the sandbox below |
 | Gemini | `agy -p /quota --output-format json` | no model call; in the sandbox below |
-| Cursor | reads the usage-meter snapshot `usage.json` (a file; nothing is run) | optional: the bundled `usage-meter-refresh.py` runs your usage-meter collector every 5 min — not sandboxed, see LOCAL-ADAPTERS.md |
+| Cursor | reads the usage-meter snapshot `usage.json` (a file; nothing is run) | optional: the bundled `usage-meter-refresh.py` runs the in-repo usage-meter collector (`tools/usage-meter/collect.py`) every 5 min — not sandboxed, see LOCAL-ADAPTERS.md |
 | Muse (parked) | none in normal app or probe | source retained for isolated diagnostics; no UI, credential reads or requests |
 
 **The CLI sandbox.** `codex`, `agy` and the retained diagnostic `muse` host run inside the macOS kernel sandbox profile

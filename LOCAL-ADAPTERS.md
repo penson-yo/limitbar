@@ -8,8 +8,8 @@ narrow ways, written down here so they can be reviewed and turned on deliberatel
 
 ## Cursor
 
-**What LimitBar reads.** The agent snapshot that the separate local tool *usage-meter* writes
-(`usage.json`, contract in usage-meter's README): `checked_at`, `stale_after_seconds` and the pools
+**What LimitBar reads.** The agent snapshot written by the in-repo *usage-meter* collector
+(`usage.json`, located in `tools/usage-meter/collect.py`, contract in [tools/usage-meter/README.md](tools/usage-meter/README.md)): `checked_at`, `stale_after_seconds` and the pools
 `cursor_models` (the plan's included pool) and `cursor_other` (other models). Nothing else in the file
 is used; the other pools, notes and any other fields are ignored and never shown or cached.
 
@@ -32,25 +32,20 @@ write ACL, ≤ 1 MiB, in folders nobody else can change; otherwise it is `untrus
 
 **Cadence.** The file is re-read whenever it changes, at most every 30 s, and at least every 60 s.
 
-### Keeping usage.json fresh without SwiftBar (opt-in, off now)
+### Keeping usage.json fresh with bundled helper (opt-in)
 
-Today the SwiftBar plugin `usage-meter.5m.py` is the only thing that runs the collector, every 5 minutes.
-Agents depend on that file. LimitBar can take that job over only after this ordered cutover:
+The usage-meter collector is packaged directly in this repository at `tools/usage-meter/collect.py`.
+LimitBar runs the bundled `usage-meter-refresh.py` helper every 5 minutes to keep `usage.json` fresh:
 
-1. Confirm a recent real snapshot using its existing `checked_at`, seven pools and 900-second staleness contract (null/error pools remain truthful unknowns).
-2. Reversibly disable the plugin **first**, record its exact restore name/path, and wait for any in-flight plugin collection to finish. Do not enable the helper while that collection is running.
-3. Enable the helper below. The recent snapshot bridges this gap; no forced collection is needed.
-4. Verify two scheduled helper-produced timestamp advances and the existing output paths/shape and failure visibility. The five-minute interval starts after completion; allow the 120-second deadline and timer tolerance.
-
-The legacy plugin does not use this helper's lock or fresh-skip. Running both can overlap; neither guard provides cross-caller coordination. If rolling back, turn the helper off before restoring the plugin.
-
-After steps 1–2:
+Point LimitBar at the packaged collector in your checkout:
 
 ```bash
-defaults write io.github.dancik.limitbar usageMeterCollector /Users/<you>/Developer/usage-meter/collect.py
+defaults write io.github.dancik.limitbar usageMeterCollector /path/to/limitbar/tools/usage-meter/collect.py
 # optional, default /usr/bin/python3 (must pass LimitBar's trust check)
 defaults write io.github.dancik.limitbar usageMeterPython /usr/bin/python3
 ```
+
+If migrating from an existing legacy SwiftBar plugin installation, disable the SwiftBar plugin first to avoid uncoordinated runs (the legacy plugin does not take this helper's lock).
 
 Then, every 5 minutes on its own queue (never holding up the CLI fetches), LimitBar runs the bundled
 `Contents/Resources/usage-meter-refresh.py` with `python3 -I -B` and LimitBar's allowlisted environment. That

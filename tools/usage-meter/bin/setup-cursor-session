@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""One-time local Cursor session setup. Does not echo the value."""
+
+from __future__ import annotations
+
+import getpass
+import os
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+CONFIG_DIR = Path.home() / ".config" / "usage-meter"
+SESSION_FILE = CONFIG_DIR / "cursor-session"
+KEYCHAIN_SERVICE = "usage-meter"
+KEYCHAIN_ACCOUNT = "cursor-session"
+
+
+def _write_file(value: str) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    SESSION_FILE.write_text(value.strip() + "\n", encoding="utf-8")
+    os.chmod(SESSION_FILE, stat.S_IRUSR | stat.S_IWUSR)
+
+
+def _write_keychain(value: str) -> None:
+    subprocess.run(
+        [
+            "security",
+            "add-generic-password",
+            "-U",
+            "-s",
+            KEYCHAIN_SERVICE,
+            "-a",
+            KEYCHAIN_ACCOUNT,
+            "-w",
+            value.strip(),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def main() -> int:
+    print("Cursor session setup (local only; this prompt does not echo).")
+    print("In a browser logged into cursor.com, copy the WorkosCursorSessionToken cookie")
+    print("or paste the Cursor access token. Leave blank to cancel.")
+    try:
+        value = getpass.getpass("token: ")
+    except (EOFError, KeyboardInterrupt):
+        print("cancelled")
+        return 1
+    value = value.strip()
+    if not value:
+        print("cancelled")
+        return 1
+    _write_file(value)
+    try:
+        _write_keychain(value)
+        stored = f"{SESSION_FILE} and Keychain"
+    except subprocess.CalledProcessError:
+        stored = str(SESSION_FILE)
+    print(f"stored locally in {stored}")
+    collect_py = Path(__file__).resolve().parent.parent / "collect.py"
+    print(f"re-run: python3 {collect_py} --json")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
