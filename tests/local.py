@@ -129,6 +129,53 @@ os.symlink(os.path.join(T, "numeric.json"), link)
 s = probe("-cursorUsagePath", link, "-musePath", "/nonexistent/muse")[0]["cursor"]
 check("cursor symlinked file: untrusted, not read", s["state"] == "untrusted", s)
 
+# ---------------------------------------------------------------- Gemini (fake `agy -p /quota` under cli.sb)
+
+def agy(name, groups):
+    p = os.path.join(T, "agy-" + name)
+    payload = {"command": {"data": {"groups": groups, "email": SECRETS[2], "token": SECRETS[0]}}}
+    with open(p, "w") as f:
+        f.write("#!/bin/bash\nprintf '%s\\n' '" + json.dumps(payload) + "'\n")
+    os.chmod(p, 0o755)
+    out = subprocess.run([BIN, "--probe", "-claudePath", "/nonexistent/claude", "-codexPath", "/nonexistent/codex",
+                          "-cursorUsagePath", "/nonexistent/usage.json", "-agyPath", p],
+                         capture_output=True, timeout=120).stdout.decode()
+    return json.loads(out)["gemini"], out
+
+
+g_five = NOW + datetime.timedelta(hours=4)
+g_week = NOW + datetime.timedelta(days=5)
+g_other_week = NOW + datetime.timedelta(days=6)
+g_argon_week = NOW + datetime.timedelta(days=3)
+s, out = agy("five-buckets", [
+    {"name": "Gemini Models", "buckets": [
+        {"window": "weekly", "remaining_fraction": 0.99, "reset_time": iso(g_week)},
+        {"window": "5h", "remaining_fraction": 1, "reset_time": iso(g_five)},
+    ]},
+    {"name": "Claude and GPT models", "buckets": [
+        {"window": "weekly", "remaining_fraction": 1, "reset_time": iso(g_other_week)},
+        {"window": "5h", "remaining_fraction": 1, "reset_time": iso(g_five)},
+        {"window": "5h", "remaining_fraction": -0.5, "reset_time": iso(g_five)},
+    ]},
+    {"name": "Gemini 4 Argon", "buckets": [
+        {"window": "weekly", "remaining_fraction": 0.72, "reset_time": iso(g_argon_week)},
+    ]},
+])
+check("gemini 5-bucket probe: state ok", s["state"] == "ok", s)
+check("gemini 5-bucket probe: all 5 valid windows included (including 0% used Claude/GPT)",
+      [(w["label"], w["short"], round(w["used"])) for w in s["windows"]] == [
+          ("Gemini Models", "5h", 0),
+          ("Gemini Models", "w", 1),
+          ("Claude and GPT models", "5h", 0),
+          ("Claude and GPT models", "w", 0),
+          ("Gemini 4 Argon", "w", 28),
+      ], s.get("windows"))
+check("gemini 5-bucket probe: bar is most-used Gemini bucket",
+      (s["bar"]["label"], s["bar"]["short"], round(s["bar"]["used"])) == ("Gemini 4 Argon", "w", 28), s.get("bar"))
+check("gemini 5-bucket probe: reset times preserved",
+      [parse(w.get("resetsAt")) for w in s["windows"]] == [g_five, g_week, g_five, g_other_week, g_argon_week], s.get("windows"))
+no_secrets("gemini 5-bucket probe", out)
+
 # ---------------------------------------------------------------- Muse (fake `muse serve`)
 
 FAKE = """#!/bin/bash

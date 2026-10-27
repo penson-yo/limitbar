@@ -137,7 +137,7 @@ enum Fetch {
     // MARK: Gemini — Antigravity CLI `agy -p /quota`: Google's own per-group buckets, zero tokens.
 
     /// The bar shows the most-used bucket across the Gemini model groups (the one that stops you first);
-    /// the panel lists every group. Non-Gemini groups (Claude/GPT inside Antigravity) only once used.
+    /// the panel keeps reported groups together, with each group's 5-hour rows above its weekly rows.
     static func gemini() -> Snapshot {
         let (b, why) = binary(.gemini)
         guard let bin = b else { return why! }
@@ -146,25 +146,33 @@ enum Fetch {
         }
         guard let out = CLI.run(box.argv[0], Array(box.argv.dropFirst()), timeout: 40, extraEnv: box.env, envFor: box.binary)
         else { return .status(.gemini, .failed, "agy timed out") }
-        guard let o = json(out.data), let data = (o["command"] as? [String: Any])?["data"] as? [String: Any],
-              let groups = data["groups"] as? [[String: Any]] else {
-            let raw = String(decoding: out.data.prefix(2000), as: UTF8.self)
-            return .status(.gemini, signedOutText(raw) ? .signedOut : .failed, signedOutText(raw) ? nil : "agy gave no quota (exit \(out.code))")
+        return geminiParse(out.data, code: out.code)
+    }
+
+    static func geminiParse(_ data: Data, code: Int32 = 0, now: Date = Date()) -> Snapshot {
+        guard let o = json(data), let payload = (o["command"] as? [String: Any])?["data"] as? [String: Any],
+              let groups = payload["groups"] as? [[String: Any]] else {
+            let raw = String(decoding: data.prefix(2000), as: UTF8.self)
+            return .status(.gemini, signedOutText(raw) ? .signedOut : .failed, signedOutText(raw) ? nil : "agy gave no quota (exit \(code))")
         }
-        var gemini: [Window] = [], other: [Window] = []
+        var gemini: [Window] = [], panel: [Window] = []
         for g in groups {
             let name = g["name"] as? String ?? "Models"
+            var groupWindows: [Window] = []
             for bucket in g["buckets"] as? [[String: Any]] ?? [] {
                 guard let rf = number(bucket["remaining_fraction"]), rf.isFinite, rf >= 0, rf <= 1 else { continue }
                 let five = (bucket["window"] as? String) == "5h"
                 let w = Window(label: name, short: five ? "5h" : "w",
                                used: (1 - rf) * 100, resetsAt: date(bucket["reset_time"]))
-                if name.localizedCaseInsensitiveContains("Gemini") { gemini.append(w) } else if rf < 1 { other.append(w) }
+                groupWindows.append(w)
+                if name.localizedCaseInsensitiveContains("Gemini") { gemini.append(w) }
             }
+            panel += groupWindows.filter { $0.short == "5h" } + groupWindows.filter { $0.short != "5h" }
         }
         guard !gemini.isEmpty else { return .status(.gemini, .failed, "no Gemini quota in agy's answer") }
         gemini.sort { ($0.used ?? 0) > ($1.used ?? 0) }
-        return Snapshot(vendor: .gemini, bar: gemini.first, windows: gemini + other, measuredAt: Date())
+        return Snapshot(vendor: .gemini, bar: gemini.first,
+                        windows: panel, measuredAt: now)
     }
 
     // MARK: Codex — the CLI writes rate_limits into its own session logs for free; app-server when old.

@@ -47,6 +47,91 @@ let reset = Fetch.museParse(resetUsage, now: now)
 check("muse invalid reset dates omitted; unknown quota stays unknown", reset.windows.allSatisfy { $0.resetsAt == nil } && reset.windows[1].used == nil)
 check("muse oversized observation rejected", Fetch.museParse(["observedAtMs": 1e308], now: now).state == .failed)
 
+func geminiJSON(_ groups: [[String: Any]]) -> Data {
+    (try? JSONSerialization.data(withJSONObject: ["command": ["data": ["groups": groups]]])) ?? Data()
+}
+let fiveReset = "2026-10-27T08:30:01Z"
+let weekReset = "2026-11-02T21:36:50Z"
+let otherWeekReset = "2026-11-02T19:37:05Z"
+let argonReset = "2026-10-31T02:11:02Z"
+let fiveBuckets = Fetch.geminiParse(geminiJSON([
+    ["name": "Gemini Models", "buckets": [
+        ["window": "weekly", "remaining_fraction": 0.99, "reset_time": weekReset],
+        ["window": "5h", "remaining_fraction": 1, "reset_time": fiveReset],
+    ]],
+    ["name": "Claude and GPT models", "buckets": [
+        ["window": "weekly", "remaining_fraction": 1, "reset_time": otherWeekReset],
+        ["window": "5h", "remaining_fraction": 1, "reset_time": fiveReset],
+    ]],
+    ["name": "Gemini 4 Argon", "buckets": [
+        ["window": "weekly", "remaining_fraction": 0.72, "reset_time": argonReset],
+    ]],
+]), now: now)
+check("gemini 5-bucket CLI shape: state ok and all 5 windows included",
+      fiveBuckets.state == .ok && fiveBuckets.windows.count == 5 &&
+      fiveBuckets.windows.map { "\($0.label):\($0.short):\(percentText($0.used))" } == [
+          "Gemini Models:5h:0",
+          "Gemini Models:w:1",
+          "Claude and GPT models:5h:0",
+          "Claude and GPT models:w:0",
+          "Gemini 4 Argon:w:28",
+      ])
+check("gemini 5-bucket CLI shape: bar selects most-used Gemini bucket and keeps resets",
+      fiveBuckets.bar?.label == "Gemini 4 Argon" && fiveBuckets.bar?.short == "w" &&
+      percentText(fiveBuckets.bar?.used) == "28" && !fiveBuckets.otherHot &&
+      fiveBuckets.windows.allSatisfy { $0.resetsAt != nil })
+
+let nonzeroOther = Fetch.geminiParse(geminiJSON([
+    ["name": "Gemini Models", "buckets": [
+        ["window": "weekly", "remaining_fraction": 0.99, "reset_time": weekReset],
+        ["window": "5h", "remaining_fraction": 0.85, "reset_time": fiveReset],
+    ]],
+    ["name": "Claude and GPT models", "buckets": [
+        ["window": "weekly", "remaining_fraction": 0.20, "reset_time": otherWeekReset],
+        ["window": "5h", "remaining_fraction": 0.05, "reset_time": fiveReset],
+    ]],
+    ["name": "Gemini 4 Argon", "buckets": [
+        ["window": "weekly", "remaining_fraction": 0.72, "reset_time": argonReset],
+    ]],
+]), now: now)
+check("gemini nonzero non-Gemini usage: menu bar stays on most-used Gemini group while flagging hot other",
+      nonzeroOther.bar?.label == "Gemini 4 Argon" && percentText(nonzeroOther.bar?.used) == "28" &&
+      nonzeroOther.otherHot &&
+      nonzeroOther.windows.map { "\($0.label):\($0.short):\(percentText($0.used))" } == [
+          "Gemini Models:5h:15",
+          "Gemini Models:w:1",
+          "Claude and GPT models:5h:95",
+          "Claude and GPT models:w:80",
+          "Gemini 4 Argon:w:28",
+      ])
+
+let filteredInvalid = Fetch.geminiParse(geminiJSON([
+    ["name": "Gemini Models", "buckets": [
+        ["window": "weekly", "remaining_fraction": 0.75, "reset_time": "9999-01-01T00:00:00Z"],
+        ["window": "5h", "remaining_fraction": true, "reset_time": fiveReset],
+        ["window": "5h", "remaining_fraction": -0.1, "reset_time": fiveReset],
+        ["window": "5h", "remaining_fraction": 1.1, "reset_time": fiveReset],
+        ["window": "5h", "remaining_fraction": "0.5", "reset_time": fiveReset],
+        ["window": "5h", "remaining_fraction": NSNull(), "reset_time": fiveReset],
+    ]],
+    ["name": "Claude and GPT models", "buckets": [
+        ["window": "weekly", "remaining_fraction": 1, "reset_time": otherWeekReset],
+        ["window": "5h", "remaining_fraction": -1, "reset_time": fiveReset],
+    ]],
+]), now: now)
+check("gemini invalid buckets skipped and bad reset date omitted",
+      filteredInvalid.state == .ok &&
+      filteredInvalid.windows.map { "\($0.label):\($0.short):\(percentText($0.used))" } == [
+          "Gemini Models:w:25",
+          "Claude and GPT models:w:0",
+      ] && filteredInvalid.windows[0].resetsAt == nil && filteredInvalid.windows[1].resetsAt != nil)
+
+let noValidGemini = Fetch.geminiParse(geminiJSON([
+    ["name": "Gemini Models", "buckets": [["window": "weekly", "remaining_fraction": "bad"]]],
+    ["name": "Claude and GPT models", "buckets": [["window": "weekly", "remaining_fraction": 1]]],
+]), now: now)
+check("gemini fails when no valid Gemini bucket exists", noValidGemini.state == .failed && noValidGemini.windows.isEmpty)
+
 let store = Store(preview: [:])
 let valid = Snapshot(vendor: .claude, windows: [Window(label: "Week", short: "w", used: 42)], measuredAt: now)
 let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
