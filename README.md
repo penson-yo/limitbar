@@ -65,14 +65,15 @@ Installed somewhere else? Point LimitBar at it:
 
 | You see | Meaning |
 |---|---|
-| `23` | 23 % of the window **used** (5-hour for Claude and Codex) |
-| `81ʷ` | a **weekly** window — that service has no 5-hour limit, or the weekly one is what binds |
-| **red** | 90 % or more used |
-| `23!` | the number shown is fine, but another window of the same service (e.g. the weekly) is at 90 %+ |
-| `—` | no reading yet, or the window has reset since the last reading |
-| dimmed | the reading is more than 45 minutes old |
+| `■` | below 20 % **used** |
+| `●` | at least 20 % used, with quota remaining |
+| `×` | quota exhausted (100 % used) |
+| `ʷ` after a symbol | a **weekly** window — that service has no 5-hour limit, or the weekly one is what binds |
+| `!` after a symbol | another window of the same service (e.g. the weekly) is at 90 %+ |
+| `—` | no usable reading, a reset awaiting an update, or a reading more than 45 minutes old |
 
-Hover (or click to pin) for every window, reset times, plan, and anything that needs attention —
+All menu-bar symbols are monochrome. Hover (or click to pin) for exact percentages in every window,
+reset times, plan, and anything that needs attention —
 "Signed out — run `codex login`", for example.
 
 ## Optional: free Claude readings from the status line

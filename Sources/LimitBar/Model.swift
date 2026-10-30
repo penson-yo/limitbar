@@ -87,9 +87,19 @@ struct Snapshot: Codable, Equatable {
     var measuredAt: Date?         // when the vendor's numbers were taken (not when we looked)
     var error: String?            // last failure, shown dimmed; previous numbers are kept
 
-    /// Any window of this vendor at ≥ 90 % other than the one in the bar → "!" next to the digit.
+    /// Any window of this vendor at ≥ 90 % other than the one in the bar → "!" next to the symbol.
     var otherHot: Bool {
         windows.contains { $0 != bar && !$0.resetPassed && ($0.used ?? 0) >= 90 }
+    }
+
+    /// Only a current, usable reading can claim a quota state. Keep exact percentages in the panel.
+    func traySymbol(at now: Date = Date()) -> String {
+        guard state == .ok, error == nil, let measuredAt,
+              (0...45 * 60).contains(now.timeIntervalSince(measuredAt)),
+              let bar, bar.resetsAt.map({ $0 > now }) ?? true,
+              let used = bar.used, used.isFinite, (0...100).contains(used) else { return "—" }
+        if used >= 100 { return "×" }
+        return used >= 20 ? "●" : "■"
     }
 
     static func status(_ v: Vendor, _ state: VendorState, _ error: String? = nil) -> Snapshot {
@@ -116,7 +126,7 @@ func overPercent(_ any: Any?) -> (used: Double, over: Bool)? {
     return (min(x, 100), x > 100)
 }
 
-/// Bar digit: rounded, but 99.6 % must never read as 100 %.
+/// Numeric detail: rounded, but 99.6 % must never read as 100 %.
 func percentText(_ v: Double?) -> String {
     guard let v = v else { return "—" }
     let r = v.rounded()

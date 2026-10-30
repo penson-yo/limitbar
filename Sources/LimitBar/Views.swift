@@ -32,42 +32,42 @@ private func isStale(_ s: Snapshot?) -> Bool {
     return Date().timeIntervalSince(m) > staleAfter
 }
 
-// MARK: - Tray: mark + % used, no "%" sign, superscript w for weekly, red ≥ 90, "!"
+// MARK: - Tray: monochrome quota symbol, superscript w for weekly, "!" for another hot window
 
 struct TrayView: View {
     @ObservedObject var store: Store
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(store.installed, id: \.self) { v in
-                let s = store.snaps[v]
-                HStack(spacing: 3) {
-                    Image(nsImage: Marks.image(v)).renderingMode(.template).resizable()
-                        .interpolation(.high).frame(width: 13, height: 13)
-                    digit(s)
+        TimelineView(.periodic(from: .now, by: 30)) { _ in
+            HStack(spacing: 8) {
+                ForEach(store.installed, id: \.self) { v in
+                    let s = store.snaps[v]
+                    HStack(spacing: 3) {
+                        Image(nsImage: Marks.image(v)).renderingMode(.template).resizable()
+                            .interpolation(.high).frame(width: 13, height: 13)
+                        status(s)
+                    }
                 }
             }
+            .padding(.horizontal, 7)
+            .frame(height: 22)
+            .fixedSize()
         }
-        .padding(.horizontal, 7)
-        .frame(height: 22)
-        .fixedSize()
     }
 
-    private func digit(_ s: Snapshot?) -> some View {
-        let w = s?.state == .ok ? s?.bar : nil
-        let shown: Double? = (w == nil || w!.resetPassed) ? nil : w!.used
-        let crit = (shown ?? 0) >= 90
-        let weekly = w?.short == "w"
-        let bang = s?.otherHot ?? false
-        var t = Text(percentText(shown))
-            .font(.system(size: 13, weight: crit ? .semibold : .regular).monospacedDigit())
+    private func status(_ s: Snapshot?) -> some View {
+        let symbol = s?.traySymbol() ?? "—"
+        let known = symbol != "—"
+        let weekly = known && s?.bar?.short == "w"
+        let bang = known && (s?.otherHot ?? false)
+        var t = Text(symbol)
+            .font(.system(size: 13, weight: .regular))
         if weekly || bang {
             var sup = Text(weekly ? "w" : "").font(.system(size: 8.5, weight: .medium))
             if bang { sup = sup + Text("!").font(.system(size: 8.5, weight: .heavy)) }
             t = t + sup.baselineOffset(5)
         }
-        return t.foregroundStyle(crit ? Color.hot : Color.primary)
-            .opacity(isStale(s) && shown != nil ? 0.5 : 1)
+        return t.foregroundStyle(Color.primary)
             .fixedSize()
     }
 }
