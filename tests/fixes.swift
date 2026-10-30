@@ -90,6 +90,15 @@ let fiveReset = resetFormatter.string(from: now.addingTimeInterval(4 * 3600))
 let weekReset = resetFormatter.string(from: now.addingTimeInterval(5 * 86400))
 let otherWeekReset = resetFormatter.string(from: now.addingTimeInterval(6 * 86400))
 let argonReset = resetFormatter.string(from: now.addingTimeInterval(3 * 86400))
+for (remaining, expected) in [(0.8, TrayStatus.goodToGo), (0.2, .goodToGo), (0.19999, .gettingClose),
+                              (0.01001, .gettingClose), (0.01, .nearlyExhausted), (0.0, .nearlyExhausted)] {
+    let parsed = Fetch.geminiParse(geminiJSON([
+        ["name": "Gemini Models", "buckets": [
+            ["window": "5h", "remaining_fraction": remaining, "reset_time": fiveReset],
+        ]],
+    ]), now: now)
+    check("tray parser-derived \(remaining) remaining: \(expected)", parsed.trayStatus(at: now) == expected)
+}
 let fiveBuckets = Fetch.geminiParse(geminiJSON([
     ["name": "Gemini Models", "buckets": [
         ["window": "weekly", "remaining_fraction": 0.99, "reset_time": weekReset],
