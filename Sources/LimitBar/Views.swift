@@ -32,7 +32,27 @@ private func isStale(_ s: Snapshot?) -> Bool {
     return Date().timeIntervalSince(m) > staleAfter
 }
 
-// MARK: - Tray: monochrome quota symbol, superscript w for weekly, "!" for another hot window
+private extension TrayStatus {
+    var color: Color {
+        switch self {
+        case .gettingClose: .blue
+        case .goodToGo: .green
+        case .nearlyExhausted: .hot
+        case .unknown: .primary
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .gettingClose: "Below 20% remaining"
+        case .goodToGo: "At least 20% remaining"
+        case .nearlyExhausted: "1% or less remaining"
+        case .unknown: "Usage unknown"
+        }
+    }
+}
+
+// MARK: - Tray: provider logos coloured by usage; all window details remain in the panel
 
 struct TrayView: View {
     @ObservedObject var store: Store
@@ -42,11 +62,12 @@ struct TrayView: View {
             HStack(spacing: 8) {
                 ForEach(store.installed, id: \.self) { v in
                     let s = store.snaps[v]
-                    HStack(spacing: 3) {
-                        Image(nsImage: Marks.image(v)).renderingMode(.template).resizable()
-                            .interpolation(.high).frame(width: 13, height: 13)
-                        status(s)
-                    }
+                    let status = s?.trayStatus() ?? .unknown
+                    Image(nsImage: Marks.image(v)).renderingMode(.template).resizable()
+                        .interpolation(.high).frame(width: 13, height: 13)
+                        .foregroundStyle(status.color)
+                        .accessibilityLabel(v.name)
+                        .accessibilityValue(status.description)
                 }
             }
             .padding(.horizontal, 7)
@@ -55,21 +76,6 @@ struct TrayView: View {
         }
     }
 
-    private func status(_ s: Snapshot?) -> some View {
-        let symbol = s?.traySymbol() ?? "—"
-        let known = symbol != "—"
-        let weekly = known && s?.bar?.short == "w"
-        let bang = known && (s?.otherHot ?? false)
-        var t = Text(symbol)
-            .font(.system(size: 13, weight: .regular))
-        if weekly || bang {
-            var sup = Text(weekly ? "w" : "").font(.system(size: 8.5, weight: .medium))
-            if bang { sup = sup + Text("!").font(.system(size: 8.5, weight: .heavy)) }
-            t = t + sup.baselineOffset(5)
-        }
-        return t.foregroundStyle(Color.primary)
-            .fixedSize()
-    }
 }
 
 // MARK: - Panel: 328 pt glass, one section per vendor, bars in brand colours

@@ -69,12 +69,16 @@ enum VendorState: String, Codable {
 /// One limit window as the vendor reports it. `used` is percent USED, 0–100.
 struct Window: Codable, Equatable {
     var label: String            // "5-hour", "Week", "Weekly credits", …
-    var short: String            // "5h" or "w" — the menu bar adds a superscript w for weekly windows
+    var short: String            // window kind, e.g. "5h" or "w"
     var used: Double?
     var resetsAt: Date?
 
     /// The reset time has passed since we read it: the old percent is obsolete, not "0 %".
     var resetPassed: Bool { (resetsAt.map { $0 < Date() }) ?? false }
+}
+
+enum TrayStatus: String {
+    case gettingClose, goodToGo, nearlyExhausted, unknown
 }
 
 struct Snapshot: Codable, Equatable {
@@ -87,19 +91,19 @@ struct Snapshot: Codable, Equatable {
     var measuredAt: Date?         // when the vendor's numbers were taken (not when we looked)
     var error: String?            // last failure, shown dimmed; previous numbers are kept
 
-    /// Any window of this vendor at ≥ 90 % other than the one in the bar → "!" next to the symbol.
+    /// Whether another current window of this vendor is at least 90 % used.
     var otherHot: Bool {
         windows.contains { $0 != bar && !$0.resetPassed && ($0.used ?? 0) >= 90 }
     }
 
     /// Only a current, usable reading can claim a quota state. Keep exact percentages in the panel.
-    func traySymbol(at now: Date = Date()) -> String {
+    func trayStatus(at now: Date = Date()) -> TrayStatus {
         guard state == .ok, error == nil, let measuredAt,
               (0...45 * 60).contains(now.timeIntervalSince(measuredAt)),
               let bar, bar.resetsAt.map({ $0 > now }) ?? true,
-              let used = bar.used, used.isFinite, (0...100).contains(used) else { return "—" }
-        if used >= 100 { return "×" }
-        return used >= 20 ? "●" : "■"
+              let used = bar.used, used.isFinite, (0...100).contains(used) else { return .unknown }
+        if used >= 99 { return .nearlyExhausted }
+        return used > 80 ? .gettingClose : .goodToGo
     }
 
     static func status(_ v: Vendor, _ state: VendorState, _ error: String? = nil) -> Snapshot {
