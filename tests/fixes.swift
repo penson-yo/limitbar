@@ -15,6 +15,41 @@ if CommandLine.arguments[1] == "trust" {
 
 let root = CommandLine.arguments[1]
 let now = Date()
+func traySnapshot(_ used: Double?) -> Snapshot {
+    let window = Window(label: "5-hour", short: "5h", used: used, resetsAt: now.addingTimeInterval(3600))
+    return Snapshot(vendor: .codex, bar: window, windows: [window], measuredAt: now)
+}
+for (used, expected) in [(0.0, TrayStatus.goodToGo), (20.0, .goodToGo), (80.0, .goodToGo), (80.001, .gettingClose), (90.0, .gettingClose), (98.999, .gettingClose), (99.0, .nearlyExhausted), (99.6, .nearlyExhausted), (100.0, .nearlyExhausted)] {
+    check("tray \(used)%: \(expected)", traySnapshot(used).trayStatus(at: now) == expected)
+}
+for used: Double? in [nil, -1, 100.1, .nan, .infinity] {
+    check("tray invalid quota stays unknown", traySnapshot(used).trayStatus(at: now) == .unknown)
+}
+for state in [VendorState.missing, .untrusted, .signedOut, .failed, .permissionNeeded, .setup] {
+    var s = traySnapshot(100); s.state = state
+    check("tray \(state): retained exhaustion stays unknown", s.trayStatus(at: now) == .unknown)
+}
+var tray = traySnapshot(100)
+tray.bar?.resetsAt = now
+check("tray at reset: no exhaustion claim", tray.trayStatus(at: now) == .unknown)
+tray.bar?.resetsAt = now.addingTimeInterval(-1)
+check("tray after reset: no exhaustion claim", tray.trayStatus(at: now) == .unknown)
+tray = traySnapshot(100); tray.measuredAt = now.addingTimeInterval(-2700)
+check("tray at freshness boundary: still current", tray.trayStatus(at: now) == .nearlyExhausted)
+tray.measuredAt = now.addingTimeInterval(-2701)
+check("tray stale exhaustion stays unknown", tray.trayStatus(at: now) == .unknown)
+tray.measuredAt = nil
+check("tray missing observation stays unknown", tray.trayStatus(at: now) == .unknown)
+tray.measuredAt = now.addingTimeInterval(1)
+check("tray future observation stays unknown", tray.trayStatus(at: now) == .unknown)
+tray = traySnapshot(100); tray.bar = nil
+check("tray missing window stays unknown", tray.trayStatus(at: now) == .unknown)
+tray = traySnapshot(100); tray.error = "Couldn't read — showing last known values"
+check("tray failed refresh with retained values stays unknown", tray.trayStatus(at: now) == .unknown)
+tray = traySnapshot(20); tray.bar?.resetsAt = nil
+check("tray known quota without reset is usable", tray.trayStatus(at: now) == .goodToGo)
+check("numeric panel detail preserved", percentText(19.4) == "19" && percentText(99.6) == "99" && percentText(100) == "100")
+
 let usage: [String: Any] = ["observedAtMs": now.timeIntervalSince1970 * 1000,
                             "window": ["usedPercent": 37, "windowDurationMins": 300]]
 func reading(_ duration: Any) -> Snapshot {
@@ -50,10 +85,20 @@ check("muse oversized observation rejected", Fetch.museParse(["observedAtMs": 1e
 func geminiJSON(_ groups: [[String: Any]]) -> Data {
     (try? JSONSerialization.data(withJSONObject: ["command": ["data": ["groups": groups]]])) ?? Data()
 }
-let fiveReset = "2026-10-27T08:30:01Z"
-let weekReset = "2026-11-02T21:36:50Z"
-let otherWeekReset = "2026-11-02T19:37:05Z"
-let argonReset = "2026-10-31T02:11:02Z"
+let resetFormatter = ISO8601DateFormatter()
+let fiveReset = resetFormatter.string(from: now.addingTimeInterval(4 * 3600))
+let weekReset = resetFormatter.string(from: now.addingTimeInterval(5 * 86400))
+let otherWeekReset = resetFormatter.string(from: now.addingTimeInterval(6 * 86400))
+let argonReset = resetFormatter.string(from: now.addingTimeInterval(3 * 86400))
+for (remaining, expected) in [(0.8, TrayStatus.goodToGo), (0.2, .goodToGo), (0.19999, .gettingClose),
+                              (0.01001, .gettingClose), (0.01, .nearlyExhausted), (0.0, .nearlyExhausted)] {
+    let parsed = Fetch.geminiParse(geminiJSON([
+        ["name": "Gemini Models", "buckets": [
+            ["window": "5h", "remaining_fraction": remaining, "reset_time": fiveReset],
+        ]],
+    ]), now: now)
+    check("tray parser-derived \(remaining) remaining: \(expected)", parsed.trayStatus(at: now) == expected)
+}
 let fiveBuckets = Fetch.geminiParse(geminiJSON([
     ["name": "Gemini Models", "buckets": [
         ["window": "weekly", "remaining_fraction": 0.99, "reset_time": weekReset],
