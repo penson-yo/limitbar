@@ -6,7 +6,7 @@ import Foundation
 /// statusline helper writes), so sign-in and token refresh stay inside the CLI — limitbar never opens a
 /// credential file, cookie or keychain item, and keeps nothing of an account but the plan name.
 /// Local additions (see LOCAL-ADAPTERS.md): Cursor is read from the usage-meter snapshot file, whose own
-/// collector handles Cursor's sign-in; Muse is asked through its own `muse serve` host, only when turned on.
+/// collector handles Cursor's sign-in; Muse is asked through `muse usage --json` without inference.
 enum Fetch {
     static let home = CLI.home
     static let iso: ISO8601DateFormatter = {
@@ -308,7 +308,7 @@ enum Sandbox {
         // A script CLI (npm's `#!/usr/bin/env node`) is started through its checked interpreter, explicitly.
         guard let start = CLI.launch(bin), let interp = start.first else { return nil }
         // agy signs in through /usr/bin/security and the keychain and talks to its helper over /tmp; muse keeps
-        // its sign-in in the keychain too (opt-in host reads only). Every other CLI gets none of that.
+        // its sign-in in the keychain too. Every other CLI gets none of that.
         let none = "/nonexistent-limitbar"
         let agy = v == .gemini
         let keychain = agy || v == .muse

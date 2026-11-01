@@ -50,7 +50,6 @@ extension Store {
     func fixtureLoadCache() { loadCache() }
     func fixturePoll(age: Double?, force: Bool, olderThan: Double?, state: VendorState = .ok,
                      resetPassed: Bool = false, isBusy: Bool = false) -> Bool {
-        museSource = .direct
         lastMuseCompletion = age.map { ProcessInfo.processInfo.systemUptime - $0 }
         lastPoll[.muse] = Date().addingTimeInterval(-(age ?? 1e6))
         lastActivity[.muse] = .distantPast

@@ -92,7 +92,7 @@ extension Fetch {
         return s
     }
 
-    // MARK: Muse — `usage/read` on the CLI's own MSP host (`muse serve`), only when turned on.
+    // MARK: Muse — the CLI's dedicated zero-inference `usage --json` command.
 
     /// Muse 1.4's launcher (`~/.local/bin/muse`) is a shell script that checks for and installs updates before
     /// starting the native binary it keeps beside itself. The sandbox cannot let it update, so limitbar runs
@@ -133,7 +133,43 @@ extension Fetch {
     /// machinery exists, but its `serve` call path is unverified (LOCAL-ADAPTERS.md).
     static var museHostEnabled: Bool { UserDefaults.standard.bool(forKey: "museHost") }
 
-    static func muse() -> Snapshot { MuseNative.setup }
+    static func muse() -> Snapshot {
+        let (b, why) = museBinary()
+        guard let bin = b else { return why! }
+        guard let box = Sandbox.wrap(.muse, bin, ["usage", "--json"]) else {
+            return .status(.muse, .failed, "sandbox unavailable — muse not run")
+        }
+        guard let out = CLI.run(box.argv[0], Array(box.argv.dropFirst()), timeout: 20,
+                                extraEnv: box.env, envFor: box.binary) else {
+            return .status(.muse, .failed, "Muse usage timed out")
+        }
+        return museUsageParse(out.data, code: out.code)
+    }
+
+    /// Muse >=1.4.13 schema v1. Only allowance data reaches the existing window parser;
+    /// account identifiers, source text and arbitrary provider errors are discarded.
+    static func museUsageParse(_ data: Data, code: Int32 = 0, now: Date = Date()) -> Snapshot {
+        func fail(_ text: String) -> Snapshot { .status(.muse, .failed, text) }
+        guard code == 0 else { return fail("Muse usage failed — check Muse sign-in and update to 1.4.13 or later") }
+        guard data.count <= 1 << 20, let root = json(data) else { return fail("Muse returned unreadable usage") }
+        guard number(root["schemaVersion"]) == 1 else { return fail("Unsupported Muse usage format — update Muse") }
+        guard root["reason"] == nil || root["reason"] is NSNull,
+              root["hint"] == nil || root["hint"] is NSNull else {
+            return fail("Muse usage unavailable — check Muse sign-in")
+        }
+        guard let allowance = root["allowance"] as? [String: Any],
+              let ms = number(allowance["asOfMs"]), let observed = supportedDate(seconds: ms / 1000) else {
+            return fail("Muse usage has no valid observation time")
+        }
+        let age = now.timeIntervalSince(observed)
+        guard age >= 0 else { return fail("Muse usage is dated in the future — not used") }
+        guard age <= 45 * 60 else { return fail("Muse usage is stale — waiting for an updated allowance") }
+        // The v1 allowance window is five hours; unlike legacy MSP, it omits duration.
+        var five = allowance["window"] as? [String: Any] ?? [:]
+        five["windowDurationMins"] = 300
+        return museParse(["observedAtMs": ms, "tier": allowance["tier"] ?? NSNull(),
+                          "window": five, "weekly": allowance["weekly"] as? [String: Any] ?? [:]], now: now)
+    }
 
     /// Explicit legacy diagnostic only. Never called by Store/native polling.
     static func museHost() -> Snapshot {
