@@ -1,11 +1,11 @@
 # LimitBar
 
 **How much of your AI coding limits you've used — in the macOS menu bar.** One glance for Claude Code,
-Codex, Gemini (Google Antigravity) and Cursor; hover for the 5-hour and weekly windows and when
+Codex, Gemini (Google Antigravity), Cursor and Muse; hover for the 5-hour and weekly windows and when
 they reset.
 
 > **Local build.** This branch drops Grok Build and adds Cursor (read from a local
-> [usage-meter](tools/usage-meter/README.md) snapshot). Muse is parked: this build has four static active providers, no Muse UI, Connect action or automatic reads, regardless of old preferences/cache. The retained Muse adapter is for isolated fixtures only. Cursor goes beyond upstream's "only the official CLI" rule:
+> [usage-meter](tools/usage-meter/README.md) snapshot) and Muse (`muse usage --json`, available in Muse 1.4.13 or later). Cursor goes beyond upstream's "only the official CLI" rule:
 > read [LOCAL-ADAPTERS.md](LOCAL-ADAPTERS.md) before turning anything on.
 
 ![LimitBar in the menu bar with its hover panel open](docs/screenshot.png)
@@ -100,9 +100,9 @@ LimitBar uses these sources:
 | Codex | reads `rate_limits` lines from `~/.codex/sessions/<today>/*.jsonl`; `codex app-server` → `account/rateLimits/read`; `codex login status` | in the sandbox below |
 | Gemini | `agy -p /quota --output-format json` | no model call; in the sandbox below |
 | Cursor | reads the usage-meter snapshot `usage.json` (a file; nothing is run) | optional: the bundled `usage-meter-refresh.py` runs the in-repo usage-meter collector (`tools/usage-meter/collect.py`) every 5 min — not sandboxed, see LOCAL-ADAPTERS.md |
-| Muse (parked) | none in normal app or probe | source retained for isolated diagnostics; no UI, credential reads or requests |
+| Muse | `muse usage --json` | five-hour and weekly allowance; no model turn; sign-in stays inside the CLI |
 
-**The CLI sandbox.** `codex`, `agy` and the retained diagnostic `muse` host run inside the macOS kernel sandbox profile
+**The CLI sandbox.** `codex`, `agy` and `muse` run inside the macOS kernel sandbox profile
 [`Resources/cli.sb`](Resources/cli.sb): each CLI can start no program outside its own install folder — so
 no MCP server, hook or plugin you configured runs — and can read or write nothing in your home folder but
 its own state folder (`~/.codex`, `~/.gemini`, `~/.config/muse` + `~/.local/share/muse`), nor other users' folders, mounted volumes or
@@ -113,7 +113,7 @@ the CLI is not run at all.
 
 How it protects you:
 
-- **Muse parked.** The static active-provider gate blocks scheduling and Connect even with legacy opt-ins. See [LOCAL-ADAPTERS.md](LOCAL-ADAPTERS.md#muse-code).
+- **Muse allowance.** Uses the CLI directly, with no Connect step or native credential access. See [LOCAL-ADAPTERS.md](LOCAL-ADAPTERS.md#muse-code).
 - **Minimal environment.** Each CLI gets only `HOME`, `USER`, `LOGNAME`, `TMPDIR`, `LANG` and a fixed
   `PATH` — none of your API keys, GitHub tokens or SSH agent socket.
 - **Only trustworthy executables.** A CLI is run only if it and its real file are owned by you or root
@@ -121,7 +121,7 @@ How it protects you:
 - **Private working directory.** CLIs run in an empty folder of LimitBar's own, never in a project.
 - **Hard limits.** One CLI at a time, 20–40 s deadline, the whole process group killed afterwards.
 - **What it stores.** `~/Library/Caches/limitbar/state.json` (percentages, reset times, plan names;
-  folder `0700`, files `0600`). No analytics or identifiers. Parked Muse makes no normal-app request.
+  folder `0700`, files `0600`). No analytics or identifiers. Muse polls at most every 30 minutes.
 - **Tested.** [`tests/claude-canary.sh`](tests/claude-canary.sh) proves canary hooks and MCP servers
   fire *without* the flags above and stay silent *with* them; [`tests/sandbox.sh`](tests/sandbox.sh)
   proves the sandbox; [`tests/states.sh`](tests/states.sh) covers missing, signed-out and
@@ -150,7 +150,7 @@ or quit LimitBar from its panel and delete `LimitBar` from Applications, `~/Appl
 
 ```bash
 scripts/build-app.sh build                  # → build/LimitBar.app (native arch)
-build/LimitBar.app/Contents/MacOS/LimitBar --probe   # CLI/file diagnostics as JSON; native Muse remains setup
+build/LimitBar.app/Contents/MacOS/LimitBar --probe   # CLI/file quota diagnostics as JSON
 tests/states.sh build/LimitBar.app
 tests/sandbox.sh
 tests/claude-canary.sh                      # needs Claude Code installed; makes no model call

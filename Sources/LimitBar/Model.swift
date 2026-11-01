@@ -3,8 +3,8 @@ import Foundation
 enum Vendor: String, CaseIterable, Codable {
     case claude, gemini, codex, cursor, muse
 
-    // Approved application sources. Muse stays compiled for isolated diagnostics only.
-    static let activeVendors: [Vendor] = [.claude, .gemini, .codex, .cursor]
+    // Approved application sources; Muse uses its zero-inference CLI allowance command.
+    static let activeVendors: [Vendor] = [.claude, .gemini, .codex, .cursor, .muse]
 
     var name: String {
         switch self {

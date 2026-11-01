@@ -90,7 +90,7 @@ struct PanelView: View {
             VStack(spacing: 0) {
                 ForEach(Array(store.installed.enumerated()), id: \.element) { i, v in
                     if i > 0 { Hairline() }
-                    VendorSection(vendor: v, snap: store.snaps[v], busy: store.busy.contains(v), connectMuse: store.connectMuse)
+                    VendorSection(vendor: v, snap: store.snaps[v], busy: store.busy.contains(v))
                 }
                 let missing = Vendor.activeVendors.filter { !store.installed.contains($0) }
                 if !missing.isEmpty {
@@ -147,7 +147,6 @@ private struct VendorSection: View {
     let vendor: Vendor
     let snap: Snapshot?
     let busy: Bool
-    let connectMuse: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -170,11 +169,6 @@ private struct VendorSection: View {
             if snap?.state == .signedOut {
                 Text("Signed out — \(vendor.loginHint)").font(.system(size: 12)).foregroundStyle(.secondary)
                     .textSelection(.enabled).padding(.top, 7)
-            } else if Vendor.activeVendors.contains(.muse) && vendor == .muse && (snap?.state == .setup || snap?.state == .permissionNeeded) {
-                HStack(spacing: 6) {
-                    FooterButton(title: "Connect Muse", action: connectMuse).disabled(busy)
-                    if busy { ProgressView().controlSize(.small) }
-                }.padding(.top, 7)
             } else if snap?.state == .setup {
                 Text("Not set up").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 7)
             } else if windows.isEmpty {

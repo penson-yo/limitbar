@@ -10,7 +10,7 @@ import Foundation
 ///   when that file is missing or stale;
 /// - Cursor is the usage-meter snapshot (a file read), re-read when it moves; with `usageMeterCollector` set,
 ///   the collector itself is run every 5 min on its own queue so it never holds up the CLIs;
-/// - Muse uses the native quota API only after Connect succeeds: at least 30 min after completion;
+/// - Muse asks `muse usage --json` without inference: at least 30 min after completion;
 ///   hover, force, wake, reset and activity never shorten that floor;
 /// - paused while the Mac sleeps, refreshed on wake; last good values cached on disk, never shown as 0.
 final class Store: ObservableObject {
@@ -24,42 +24,6 @@ final class Store: ObservableObject {
     // Monotonic completion time: wall-clock changes cannot shorten Muse's start budget in this process.
     private var lastMuseCompletion: TimeInterval?
     private let museInterval: TimeInterval = 30 * 60
-    enum MuseSource { case off, direct }
-    private var museSource: MuseSource = .off
-    private var museClient = MuseNative.Client()
-    private var museActionsAllowed = false // offscreen preview cannot connect
-    private var museConnectAttempted = false
-    private var persistMuse: (Bool) -> Void = { UserDefaults.standard.set($0, forKey: "museDirectQuota") }
-
-    /// The only UI path allowed to request Keychain interaction. No force-refresh path calls this.
-    func connectMuse() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard Vendor.activeVendors.contains(.muse), museActionsAllowed, !asleep, !busy.contains(.muse),
-              snaps[.muse]?.state == .setup || snaps[.muse]?.state == .permissionNeeded else { return }
-        if museConnectAttempted || museSource == .direct {
-            guard lastMuseCompletion.map({ ProcessInfo.processInfo.systemUptime - $0 >= museInterval }) ?? true else {
-                snaps[.muse]?.error = "Muse can be checked again 30 minutes after the last attempt."
-                return
-            }
-        }
-        museConnectAttempted = true
-        busy.insert(.muse)
-        let client = museClient
-        queue.async { [weak self] in
-            let result = client.read(.connect)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.busy.remove(.muse)
-                self.lastPoll[.muse] = Date()
-                self.lastMuseCompletion = ProcessInfo.processInfo.systemUptime
-                self.museSource = result.activeLogin ? .direct : .off
-                self.persistMuse(result.activeLogin)
-                var snapshot = result.snapshot
-                if !result.activeLogin, snapshot.state == .failed { snapshot.state = .setup }
-                self.apply(.muse, snapshot)
-            }
-        }
-    }
     private var lastActivity: [Vendor: Date] = [:]
     private var lastClaudeUsage = Date.distantPast
     private var lastAccountCheck = Date.distantPast
@@ -92,12 +56,7 @@ final class Store: ObservableObject {
     init(preview: [Vendor: Snapshot]) { snaps = preview.filter { Vendor.activeVendors.contains($0.key) } }
 
     init() {
-        if Vendor.activeVendors.contains(.muse) {
-            museActionsAllowed = true
-            museSource = UserDefaults.standard.bool(forKey: "museDirectQuota") ? .direct : .off
-        }
         loadCache()
-        if Vendor.activeVendors.contains(.muse), museSource == .off { snaps[.muse] = MuseNative.setup }
         let ws = NSWorkspace.shared.notificationCenter
         ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in self?.asleep = true }
         ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -138,9 +97,8 @@ final class Store: ObservableObject {
     private func shouldPoll(_ v: Vendor, force: Bool, olderThan: TimeInterval?) -> Bool {
         guard Vendor.activeVendors.contains(v), !busy.contains(v) else { return false }
         // Before EVERY generic override. Missing/setup/failed reads also observe this floor; no manual
-        // override. First poll in a new app process is eligible, and remains off unless explicitly enabled.
+        // override. First poll in a new app process is eligible.
         if v == .muse {
-            if museSource == .off, snaps[.muse] != nil { return false }
             return lastMuseCompletion.map { ProcessInfo.processInfo.systemUptime - $0 >= museInterval } ?? true
         }
         let last = lastPoll[v] ?? .distantPast
@@ -183,11 +141,10 @@ final class Store: ObservableObject {
         busy.insert(v)
         let act = activity(v)
         let prev = snaps[v]                        // read on main; fetch runs on the queue
-        let museEnabled = museSource == .direct
         let note = v == .cursor ? collectorNote : nil   // immutable main-queue capture
         queue.async { [weak self] in
             guard let self = self else { return }
-            let s = self.fetch(v, prev: prev, force: force, collectorNote: note, museEnabled: museEnabled)
+            let s = self.fetch(v, prev: prev, force: force, collectorNote: note)
             DispatchQueue.main.async {
                 self.busy.remove(v)
                 self.lastPoll[v] = Date()
@@ -199,7 +156,7 @@ final class Store: ObservableObject {
     }
 
     /// Runs on the serial queue.
-    private func fetch(_ v: Vendor, prev: Snapshot?, force: Bool, collectorNote: String?, museEnabled: Bool = false) -> Snapshot {
+    private func fetch(_ v: Vendor, prev: Snapshot?, force: Bool, collectorNote: String?) -> Snapshot {
         switch v {
         case .claude:
             if case .missing = CLI.find("claude") { return .status(.claude, .missing) }
@@ -239,7 +196,7 @@ final class Store: ObservableObject {
             if let note = collectorNote { s.notes.append(note) }
             return s
         case .muse:
-            return museEnabled ? museClient.read(.background).snapshot : Fetch.muse()
+            return Fetch.muse()
         }
     }
 

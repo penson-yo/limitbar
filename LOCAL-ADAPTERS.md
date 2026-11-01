@@ -1,10 +1,7 @@
-# Local adapters: Cursor active, Muse parked (and no Grok)
+# Local adapters: Cursor and Muse (and no Grok)
 
-This build has exactly four active providers: Claude, Codex, Antigravity (Gemini) and Cursor. Muse code and tests are parked, reversible source only. No runtime toggle enables it; old museDirectQuota/museHost preferences and cached Muse entries cannot add rows, Connect, polling, credential reads, HTTP or CLI work.
-
-This local branch of LimitBar removes Grok Build and retains two sources upstream does not have. Upstream's
-rule is "ask the vendor's official CLI; never open a credential". Both additions step outside that rule in
-narrow ways, written down here so they can be reviewed and turned on deliberately.
+This build has five active providers: Claude, Codex, Antigravity (Gemini), Cursor and Muse.
+Cursor reads the local usage-meter snapshot; Muse asks its official CLI. Grok is removed.
 
 ## Cursor
 
@@ -63,68 +60,13 @@ talks to the vendors' usage endpoints. LimitBar adds no new credential access. I
 
 ## Muse Code
 
-**Parked in this build.** The implementation below describes retained source, not an available product feature. The static `Vendor.activeVendors` list excludes Muse from Store startup/cache, polling/scheduling, Connect, tray, panel and missing rows. `Vendor.allCases` still contains all five cases. No preferences are changed or needed. Isolated legacy Swift fixture copies explicitly include all cases to keep cadence/security coverage.
+**Source.** Muse 1.4.13 or later provides `muse usage --json`, a dedicated allowance query with no model turn. LimitBar runs the trusted native binary under its existing CLI sandbox, with a 20-second deadline and an allowlisted environment. For the self-updating shell launcher, it resolves the native binary named in `.muse-version` instead of running the updater. Sign-in and Keychain access stay inside the official CLI; LimitBar does not read credentials or call the native key-issuing API.
 
-**Retained implementation (inactive): Connect Muse.** The native adapter does not need a running Muse CLI or Python permission.
-Before a successful connection, normal startup, hover, wake and Refresh do not read Muse credentials
-or call its API. `museHost` never selects the normal provider anymore.
+**Quota.** Schema version 1 supplies `allowance.asOfMs`, `window` and `weekly` with `usedPercent` and `resetsAtMs`. The five-hour window appears above weekly. Only canonical plan names, quota numbers, reset times and the provider observation time are retained. Missing/malformed caps stay unknown; booleans, strings, negative/nonfinite/extreme values never become zero. Readings dated in the future or older than 45 minutes, unsupported schemas, nonzero exits and responses with a reason/hint fail closed. Passed resets retain the existing awaiting-update display.
 
-**Intentional connection.** The native button is visible only in setup or permission-needed state.
-It sets the same busy state/spinner as other native reads and serializes work off main. Only this action
-allows a Keychain prompt. If access is declined, fixed inline feedback appears and background reads stop.
-An initial manual connection may run without waiting for a disabled-source setup check. Subsequent
-Connect attempts and every enabled automatic poll respect the r6 30-minute floor after completion;
-force, hover, wake, reset and activity cannot bypass it. Busy blocks overlap. Timing uses monotonic uptime
-within one running process; relaunch does not preserve the floor.
+**Cadence.** Automatic reads start without a Connect step. Every read, including failed/missing reads, observes a 30-minute floor after completion using monotonic uptime. Hover, force, wake, reset and activity do not shorten it; relaunch starts a new process budget. `museDirectQuota` and `museHost` preferences never select the normal source.
 
-HTTP 200 with strictly validated active subscription/payment flags opts into automatic reads via the
-nonsecret `museDirectQuota` preference. This includes an active login whose answer omits quota: its safe
-plan remains visible, quota stays unknown, and no measurement time is invented. Connection failures do
-not enable polling. An explicit failed reconnect disables it. No preference was changed during authoring.
-
-**Credential boundary.** `Muse.swift` owns all native Muse secret I/O. It reads only the existing
-`~/.config/muse/auth.json` (trusted regular owner-only file, no group/other permissions or write ACL, bounded at 1 MiB) and the exact
-Keychain generic-password service `ai.meta.dev.credentials`, account `meta`. A nonblank inline
-`providers.meta.access_token` wins, matching upstream precedence; malformed/unrelated auth JSON falls
-back to the Keychain, but an unusable nonblank inline token does not. Keychain JSON uses `access_token`.
-Only bounded printable `dca:` device-login tokens qualify. No environment token override or secret CLI
-argument exists. No credential, hash, identifier, email, returned inference key or payment field is stored.
-
-Background uses `kSecUseAuthenticationUIFail` and a query-specific `LAContext` with interaction disabled.
-Because legacy Keychain ACLs can require prompts, it first inspects the exact item's decrypt ACL without
-requesting its secret. Unknown ACL access fails closed; permission-required status is distinct from
-missing login, declined access, malformed JSON, unusable token and unavailable Keychain. No global
-Security interaction switch changes other providers. No ACL is edited by the adapter. Only the human
-may approve an OS prompt after installing the reviewed app; ad-hoc build identity/path changes may
-require a new grant. Grant/prompt behavior remains a human acceptance gate.
-
-**Network boundary.** One native ephemeral URLSession task per poll: hardcoded HTTPS
-`https://api.meta.ai/muse-code/key`, POST `{}`, Authorization Bearer existing login token,
-`x-api-version: 1.0.0`, 15-second absolute deadline, standard TLS, redirects denied, no cookies,
-credential storage, environment proxies or URL cache, response at most 1 MiB. No retry/refresh/model
-call, CLI startup, login/logout, credential write or inference-key persistence exists. This endpoint
-**may issue an inference key**: direct quota does not establish nonrotation or old-key validity.
-
-**Truthful quota.** Strict booleans are required for `require_payment` and `is_subs_active`. Only safe
-canonical documented plans (Everyday, High Usage, Power Usage, Maximum Usage, or Muse Code) reach the
-UI/cache. Invalid percentages remain unknown; 100–1000 is bounded to 100 with an over-limit flag.
-`window_duration_mins` uses r6's one-second through one-week guard and fractional formatting; invalid
-duration retains the generic Window label. `resets_at` uses seconds and r6's UTC 2000–2100 bounds.
-Only valid received quota gets the request-completion `measuredAt`. Missing/null `subs_usage` keeps the
-active plan with a specific unknown-quota message. No browser-session or team fallback is implemented.
-The native source note says “Muse quota API”; it makes no cross-account or key-validity claim.
-
-**Retained diagnostic.** The old trust-checked `muse serve` implementation and sandbox are retained as
-`Fetch.museHost()` for backward fixture coverage. `--probe` normally returns only the four active providers, even with legacy opt-ins. A separately authorized
-legacy host diagnostic requires `--muse-host-diagnostic`, explicit path overrides for all five sources, and `-museHost YES`. Use only fully synthetic fixtures; native credentials are never enabled by this flag.
-It may mint/update CLI credentials; do not use it for normal quota polling. Existing fake-host coverage
-uses explicit synthetic paths and overrides all five sources. The old helper, CLI sources, sandbox,
-other four providers and r6 cutover policy remain in place.
-
-Primary references: [native credential precedence](https://github.com/steipete/CodexBar/blob/main/Sources/CodexBarCore/Providers/Muse/MuseCredentials.swift),
-[upstream Muse API parser](https://github.com/steipete/CodexBar/blob/main/Sources/CodexBarCore/Resources/Plugins/muse.ts),
-[Meta subscription plans](https://dev.meta.ai/docs/muse-code/subscriptions),
-[Maximum Usage](https://dev.meta.ai/resources/blog/build-with-muse-wonder).
+**Legacy diagnostics.** The old native adapter and MSP host code remain isolated fixture support. Normal Store and default probe cannot select the native credential/HTTP adapter. A synthetic host diagnostic requires `--muse-host-diagnostic`, explicit source path overrides for all five providers and `-museHost YES`; it is not used for normal quota polling.
 
 ## Grok
 
@@ -136,7 +78,7 @@ cache entry `"grok"` in `~/Library/Caches/limitbar/state.json` is skipped on loa
 - `tests/states.sh <app>`: the five vendors' missing / signed-out / untrusted / setup states, with fake CLIs.
 - `tests/local.sh <app>`: Cursor snapshot parsing (numeric, stale, booleans, strings, negative, non-finite, over 100, out of range, reset passed, future-dated, garbage, signed out, group-writable, symlink), Muse host fixtures (numeric, push, invalid, over-quota, reset passed, bad time, nothing observed, off), the refresh helper (refreshed, fresh-skip, locked-skip, untrusted, import-failed, collect-failed, name check), and that no fake token, key, email or account id ever reaches the output.
 - `tests/fixes.py <app>` (also run by `tests/local.sh`): targeted synthetic ACL, overlap/drained cutover, descriptor-output, numeric/date-boundary, actual Store cache/scheduling and immutable-note regressions. The Swift harness redirects `Paths.cache` in temporary source copies explicitly; HOME alone is not cache isolation. It constructs only `Store(preview:)`, never normal timers/fetch startup.
-- `tests/native-muse.py <app> --four-only`: narrow production gate regression, normal Store startup/hover/force/wake/Connect with legacy defaults and cache, explicit fake home/Foundation cache, and byte-identical offscreen tray/panel/missing-row output for parked states.
-- `tests/native-muse.py` (also run by `tests/local.sh`): native credential/status, no-UI/manual query, strict response, URLSession transport and Store connection/cadence tests. Explicit private cache and injected fake secrets/network only.
+- `tests/muse-usage.py <app>` (also run by `tests/native-muse.py`): current CLI command/gate, schema validation, missing/invalid/stale/future allowance, error fields, partial caps, exhausted quota, retained timestamps/resets and private-field suppression. All sources have explicit fake paths.
+- `tests/native-muse.py <app>` (also run by `tests/local.sh`): the CLI checks plus isolated legacy credential/transport/parser fixtures with injected secrets/network only; no production Connect path.
 - `tests/sandbox.sh`: unchanged checks of `Resources/cli.sb` with the new `STATE2` parameter.
 - `LimitBar --render-preview <snapshots.json> <out.png> [--dark]`: draws the item and panel offscreen for a layout/wording check. The real menu bar and the panel's glass are not in that picture.

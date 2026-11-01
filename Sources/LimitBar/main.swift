@@ -26,9 +26,8 @@ if args.contains("--probe") {
         case .codex: all[v.rawValue] = Fetch.codexFromServer()
         case .cursor: all[v.rawValue] = Fetch.cursor()
         case .muse:
-            // Explicit diagnostic with an explicit trusted binary only; default probe never reads Muse secrets/HTTP.
-            all[v.rawValue] = args.contains("--muse-host-diagnostic") && args.contains("-musePath")
-                ? Fetch.museHost() : Fetch.muse()
+            // Default uses the official zero-inference CLI command; legacy host fixtures require explicit paths.
+            all[v.rawValue] = diagnostic ? Fetch.museHost() : Fetch.muse()
         }
     }
     print(String(decoding: (try? enc.encode(all)) ?? Data(), as: UTF8.self))
