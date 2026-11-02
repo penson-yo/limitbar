@@ -4,7 +4,7 @@ enum Vendor: String, CaseIterable, Codable {
     case claude, gemini, codex, cursor, muse
 
     // Approved application sources; Muse uses its zero-inference CLI allowance command.
-    static let activeVendors: [Vendor] = [.claude, .gemini, .codex, .cursor, .muse]
+    static let activeVendors: [Vendor] = [.claude, .codex, .muse, .cursor, .gemini]
 
     var name: String {
         switch self {
