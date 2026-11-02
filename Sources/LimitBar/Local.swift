@@ -155,7 +155,9 @@ extension Fetch {
         guard number(root["schemaVersion"]) == 1 else { return fail("Unsupported Muse usage format — update Muse") }
         guard root["reason"] == nil || root["reason"] is NSNull,
               root["hint"] == nil || root["hint"] is NSNull else {
-            return fail("Muse usage unavailable — check Muse sign-in")
+            return fail((root["reason"] as? String) == "server_sent_no_usage"
+                ? "Muse returned no usage — waiting for an updated allowance"
+                : "Muse usage unavailable")
         }
         guard let allowance = root["allowance"] as? [String: Any],
               let ms = number(allowance["asOfMs"]), let observed = supportedDate(seconds: ms / 1000) else {

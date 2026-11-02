@@ -50,7 +50,7 @@ extension Store {
     func fixtureLoadCache() { loadCache() }
     func fixturePoll(age: Double?, force: Bool, olderThan: Double?, state: VendorState = .ok,
                      resetPassed: Bool = false, isBusy: Bool = false) -> Bool {
-        lastMuseCompletion = age.map { ProcessInfo.processInfo.systemUptime - $0 }
+        lastMuseCompletion = age.map { ContinuousClock.now.advanced(by: .seconds(-$0)) }
         lastPoll[.muse] = Date().addingTimeInterval(-(age ?? 1e6))
         lastActivity[.muse] = .distantPast
         snaps[.muse] = Snapshot(vendor: .muse, state: state,
@@ -64,6 +64,9 @@ extension Store {
         lastCollector = Collector.Result(at: Date(), status: "refreshed")
         let result = queue.sync { fetch(.cursor, prev: nil, force: false, collectorNote: note) }
         return collectorNote == nil && result.notes.contains(note ?? "never")
+    }
+    static func fixtureClaudeUsageDue(_ snapshot: Snapshot?, ageSinceAttempt: Double, at now: Date) -> Bool {
+        claudeUsageDue(snapshot, lastAttempt: now.addingTimeInterval(-ageSinceAttempt), at: now)
     }
 }
 '''

@@ -202,6 +202,20 @@ for (path, force, older, state, resetPassed) in [
 check("muse exact floor eligible", store.fixturePoll(age: 1800, force: true, olderThan: 0))
 check("muse in-flight prevents duplicate", !store.fixturePoll(age: 1801, force: true, olderThan: nil, isBusy: true))
 check("muse monotonic future completion refuses override", !store.fixturePoll(age: -10, force: true, olderThan: 0))
+check("muse long elapsed sleep is eligible on wake", store.fixturePoll(age: 75 * 60, force: true, olderThan: nil))
+var expiredClaude = traySnapshot(39)
+expiredClaude.vendor = .claude
+expiredClaude.measuredAt = now.addingTimeInterval(-60)
+expiredClaude.bar?.resetsAt = now.addingTimeInterval(-1)
+check("claude fresh statusline with expired selected window triggers usage read",
+      Store.fixtureClaudeUsageDue(expiredClaude, ageSinceAttempt: 21 * 60, at: now))
+check("claude expired window still respects usage attempt budget",
+      !Store.fixtureClaudeUsageDue(expiredClaude, ageSinceAttempt: 19 * 60, at: now))
+expiredClaude.bar?.resetsAt = now.addingTimeInterval(60)
+check("claude current fresh statusline avoids usage read",
+      !Store.fixtureClaudeUsageDue(expiredClaude, ageSinceAttempt: 21 * 60, at: now))
+check("claude missing statusline reads when budget permits",
+      Store.fixtureClaudeUsageDue(nil, ageSinceAttempt: 20 * 60, at: now))
 check("collector captured note survives main status replacement", store.fixtureCapturedNote())
 
 let fakeACL = OpaquePointer(bitPattern: 0x1)!

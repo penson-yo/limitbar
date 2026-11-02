@@ -21,9 +21,10 @@ final class Store: ObservableObject {
     private var timer: Timer?
     private var asleep = false
     private var lastPoll: [Vendor: Date] = [:]
-    // Monotonic completion time: wall-clock changes cannot shorten Muse's start budget in this process.
-    private var lastMuseCompletion: TimeInterval?
-    private let museInterval: TimeInterval = 30 * 60
+    // Continuous time includes sleep: waking after 30 minutes must not wait another 30 awake minutes.
+    // Wall-clock changes still cannot shorten Muse's start budget in this process.
+    private var lastMuseCompletion: ContinuousClock.Instant?
+    private let museInterval: Duration = .seconds(30 * 60)
     private var lastActivity: [Vendor: Date] = [:]
     private var lastClaudeUsage = Date.distantPast
     private var lastAccountCheck = Date.distantPast
@@ -99,7 +100,7 @@ final class Store: ObservableObject {
         // Before EVERY generic override. Missing/setup/failed reads also observe this floor; no manual
         // override. First poll in a new app process is eligible.
         if v == .muse {
-            return lastMuseCompletion.map { ProcessInfo.processInfo.systemUptime - $0 >= museInterval } ?? true
+            return lastMuseCompletion.map { $0.duration(to: .now) >= museInterval } ?? true
         }
         let last = lastPoll[v] ?? .distantPast
         let age = Date().timeIntervalSince(last)
@@ -148,7 +149,7 @@ final class Store: ObservableObject {
             DispatchQueue.main.async {
                 self.busy.remove(v)
                 self.lastPoll[v] = Date()
-                if v == .muse { self.lastMuseCompletion = ProcessInfo.processInfo.systemUptime }
+                if v == .muse { self.lastMuseCompletion = .now }
                 if let a = act { self.lastActivity[v] = a }
                 self.apply(v, s)
             }
@@ -167,8 +168,7 @@ final class Store: ObservableObject {
             }
             if claudeAccount?.signedIn == false { return .status(.claude, .signedOut) }
             var s = Fetch.claudeFile()
-            let fileAge = s?.measuredAt.map { Date().timeIntervalSince($0) } ?? .infinity
-            if fileAge > 20 * 60, force || Date().timeIntervalSince(lastClaudeUsage) > 20 * 60 {
+            if Self.claudeUsageDue(s, lastAttempt: lastClaudeUsage, at: Date()) {
                 lastClaudeUsage = Date()
                 s = Fetch.claudeUsage()
             }
@@ -198,6 +198,14 @@ final class Store: ObservableObject {
         case .muse:
             return Fetch.muse()
         }
+    }
+
+    /// A recently written statusline can still describe a window that has already reset. Re-read it
+    /// through the CLI once the normal 20-minute attempt budget permits, without inventing a new quota.
+    private static func claudeUsageDue(_ snapshot: Snapshot?, lastAttempt: Date, at now: Date) -> Bool {
+        let age = snapshot?.measuredAt.map { now.timeIntervalSince($0) } ?? .infinity
+        let resetPassed = snapshot?.bar?.resetsAt.map { $0 <= now } ?? false
+        return (age > 20 * 60 || resetPassed) && now.timeIntervalSince(lastAttempt) >= 20 * 60
     }
 
     /// One quiet line under Cursor while the collector is on. Access only on main at scheduling time;

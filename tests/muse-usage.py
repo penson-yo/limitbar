@@ -88,6 +88,18 @@ with tempfile.TemporaryDirectory(prefix='limitbar-muse-usage-') as folder:
     for name, d in invalid:
         s = probe(d)
         check(name+' fails with no invented quota', s['state'] == 'failed' and not s.get('windows'))
+    no_usage = {'schemaVersion': 1, 'reason': 'server_sent_no_usage', 'hint': marker}
+    s = probe(no_usage)
+    check('server_sent_no_usage fails with fixed waiting wording and no hint leakage',
+          s['state'] == 'failed' and not s.get('windows') and
+          s.get('error') == 'Muse returned no usage — waiting for an updated allowance')
+    for name, payload in [('other reason', {'schemaVersion': 1, 'reason': marker}),
+                          ('other hint', {'schemaVersion': 1, 'hint': marker}),
+                          ('non-string reason', {'schemaVersion': 1, 'reason': 42})]:
+        s = probe(payload)
+        check(name+' fails with generic fixed wording and no upstream leakage',
+              s['state'] == 'failed' and not s.get('windows') and
+              s.get('error') == 'Muse usage unavailable')
     check('malformed JSON fails closed', probe({}, raw='not JSON '+marker)['state'] == 'failed')
     check('nonzero command exit fails closed', probe(base, code=1)['state'] == 'failed')
     d = copy.deepcopy(base); d['allowance']['window']['resetsAtMs'] = ms(now-datetime.timedelta(minutes=1))
