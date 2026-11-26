@@ -79,6 +79,12 @@ struct Window: Codable, Equatable {
 
 enum TrayStatus: String {
     case gettingClose, goodToGo, nearlyExhausted, unknown
+
+    /// The one status the single menu bar icon shows: red beats blue beats green; nothing known is neutral.
+    static func worst(_ statuses: [TrayStatus]) -> TrayStatus {
+        for s in [TrayStatus.nearlyExhausted, .gettingClose, .goodToGo] where statuses.contains(s) { return s }
+        return .unknown
+    }
 }
 
 struct Snapshot: Codable, Equatable {

@@ -65,12 +65,13 @@ Installed somewhere else? Point LimitBar at it:
 
 | You see | Meaning |
 |---|---|
-| Green provider logo | at least 20 % of quota **remaining** (up to 80 % used) |
-| Blue provider logo | below 20 % remaining, before the red threshold (over 80 % to below 99 % used) |
-| Red provider logo | effectively empty: 99 % or more used (1 % or less remaining) |
-| Neutral provider logo | no usable reading, a reset awaiting an update, or a reading more than 45 minutes old |
+| Green meter icon | every service with a reading has at least 20 % of quota **remaining** (up to 80 % used) |
+| Blue meter icon | below 20 % remaining, before the red threshold (over 80 % to below 99 % used) |
+| Red meter icon | effectively empty: 99 % or more used (1 % or less remaining) |
+| Neutral meter icon | no usable reading, a reset awaiting an update, or a reading more than 45 minutes old |
 
-The menu bar shows only provider logos, coloured for each service's selected window. Hover (or click to pin)
+The menu bar shows a single meter icon, coloured by the worst status across your installed services
+(red, then blue, then green; neutral if none has a usable reading). Hover (or click to pin)
 for exact percentages in every window, including weekly and other limits,
 reset times, plan, and anything that needs attention —
 "Signed out — run `codex login`", for example.

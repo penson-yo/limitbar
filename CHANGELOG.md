@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **One menu bar icon.** The menu bar now shows a single meter icon instead of one logo per provider, tinted by the worst status across installed services. Hover or click for per-provider detail.
 - **Packaged usage-meter tool.** Integrated the local usage quota collector into `tools/usage-meter` (provenance `f190de5`) with dynamic Cursor account store discovery and portable setup documentation.
 
 ## 1.0.3
