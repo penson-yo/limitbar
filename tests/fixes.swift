@@ -13,6 +13,11 @@ if CommandLine.arguments[1] == "trust" {
     exit(0)
 }
 
+check("tray worst: red wins", TrayStatus.worst([.goodToGo, .nearlyExhausted, .gettingClose, .unknown]) == .nearlyExhausted)
+check("tray worst: blue over green", TrayStatus.worst([.goodToGo, .unknown, .gettingClose]) == .gettingClose)
+check("tray worst: green over unknown", TrayStatus.worst([.unknown, .goodToGo]) == .goodToGo)
+check("tray worst: none or unknown is neutral", TrayStatus.worst([]) == .unknown && TrayStatus.worst([.unknown]) == .unknown)
+
 let root = CommandLine.arguments[1]
 let now = Date()
 func traySnapshot(_ used: Double?) -> Snapshot {

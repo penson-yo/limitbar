@@ -52,27 +52,24 @@ private extension TrayStatus {
     }
 }
 
-// MARK: - Tray: provider logos coloured by usage; all window details remain in the panel
+// MARK: - Tray: one meter icon tinted by the worst provider status; details remain in the panel
 
 struct TrayView: View {
     @ObservedObject var store: Store
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { _ in
-            HStack(spacing: 8) {
-                ForEach(store.installed, id: \.self) { v in
-                    let s = store.snaps[v]
-                    let status = s?.trayStatus() ?? .unknown
-                    Image(nsImage: Marks.image(v)).renderingMode(.template).resizable()
-                        .interpolation(.high).frame(width: 13, height: 13)
-                        .foregroundStyle(status.color)
-                        .accessibilityLabel(v.name)
-                        .accessibilityValue(status.description)
-                }
-            }
-            .padding(.horizontal, 7)
-            .frame(height: 22)
-            .fixedSize()
+            let statuses = store.installed.map { (vendor: $0, status: store.snaps[$0]?.trayStatus() ?? .unknown) }
+            Image(systemName: "gauge.with.dots.needle.50percent")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(TrayStatus.worst(statuses.map(\.status)).color)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("AI subscription limits")
+                .accessibilityValue(statuses.isEmpty ? "No providers installed"
+                    : statuses.map { "\($0.vendor.name): \($0.status.description.lowercased())" }.joined(separator: "; "))
+                .padding(.horizontal, 7)
+                .frame(height: 22)
+                .fixedSize()
         }
     }
 
